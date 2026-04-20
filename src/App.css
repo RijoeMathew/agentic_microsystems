@@ -1,0 +1,4 @@
+/* App-specific styles if any, otherwise leave clean for global index.css */
+#root {
+  display: block;
+}
