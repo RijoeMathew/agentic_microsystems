@@ -55,6 +55,19 @@ function App() {
           </span>
           <div className="line rev"></div>
         </motion.div>
+
+        <motion.a
+          href="mailto:rijoe.c.mathew@gmail.com"
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 1.8, duration: 0.8 }}
+          className="contact-link"
+        >
+          Get in Touch
+          <svg className="w-4 h-4 ml-2 inline" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M14 5l7 7m0 0l-7 7m7-7H3" />
+          </svg>
+        </motion.a>
       </motion.main>
     </div>
   );
