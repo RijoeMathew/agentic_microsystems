@@ -35,8 +35,6 @@ function App() {
         transition={{ duration: 1.2, ease: [0.22, 1, 0.36, 1] }}
         className="glass-container"
       >
-        <div className="pulse-node"></div>
-
         <motion.h1 
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
