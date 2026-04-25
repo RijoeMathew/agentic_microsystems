@@ -168,17 +168,20 @@ body {
 
 .sale-banner {
   pointer-events: auto;
-  background: rgba(15, 15, 20, 0.95);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
+  background: rgba(10, 10, 15, 0.98);
+  backdrop-filter: blur(40px) saturate(180%);
+  -webkit-backdrop-filter: blur(40px) saturate(180%);
   border: 2px solid #f59e0b;
-  border-radius: 20px;
-  padding: 1.5rem 2rem;
+  border-radius: 24px;
+  padding: 1.8rem 2.5rem;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 0.75rem;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.8), 0 0 30px rgba(245, 158, 11, 0.2);
+  gap: 1rem;
+  box-shadow: 
+    0 30px 90px rgba(0, 0, 0, 0.9), 
+    0 0 40px rgba(245, 158, 11, 0.15),
+    inset 0 0 20px rgba(255, 255, 255, 0.02);
   width: auto;
   max-width: 90vw;
   text-align: center;
