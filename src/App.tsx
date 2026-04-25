@@ -18,7 +18,7 @@ function App() {
           <span className="sale-text">This site is for sale</span>
           <div className="sale-divider"></div>
           <a href="mailto:rijoe.c.mathew@gmail.com" className="sale-email">
-            Contact: rijoe.c.mathew@gmail.com
+            Contact for Inquiry
           </a>
         </div>
       </motion.div>
