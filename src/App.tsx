@@ -7,6 +7,22 @@ function App() {
     <div className="app-container">
       <FluidBackground />
       
+      <motion.div
+        initial={{ opacity: 0, y: -20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 1, duration: 1 }}
+        className="sale-banner-container"
+      >
+        <div className="sale-banner">
+          <div className="sale-dot"></div>
+          <span className="sale-text">This site is for sale</span>
+          <div className="sale-divider"></div>
+          <a href="mailto:rijoe.c.mathew@gmail.com" className="sale-email">
+            rijoe.c.mathew@gmail.com
+          </a>
+        </div>
+      </motion.div>
+
       {/* Dynamic Background Lines */}
       <div className="grid-line grid-v" style={{ left: '20%' }}></div>
       <div className="grid-line grid-v" style={{ left: '80%' }}></div>
