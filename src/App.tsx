@@ -18,7 +18,7 @@ function App() {
           <span className="sale-tag">Opportunity</span>
         </div>
         <div className="sale-divider-v"></div>
-        <p className="sale-message">Domain agenticmicrosystems.com is for sale</p>
+        <p className="sale-message">This domain is for sale</p>
         <div className="sale-divider-v hide-mobile"></div>
         <a href="mailto:rijoe.c.mathew@gmail.com" className="sale-btn">
           Contact for Inquiry
