@@ -8,19 +8,21 @@ function App() {
       <FluidBackground />
       
       <motion.div
-        initial={{ opacity: 0, y: -20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 1, duration: 1 }}
-        className="sale-banner-container"
+        initial={{ y: -100 }}
+        animate={{ y: 0 }}
+        transition={{ duration: 0.8, ease: "easeOut" }}
+        className="sale-header-bar"
       >
-        <div className="sale-banner">
+        <div className="sale-status">
           <div className="sale-dot"></div>
-          <span className="sale-text">This site is for sale</span>
-          <div className="sale-divider"></div>
-          <a href="mailto:rijoe.c.mathew@gmail.com" className="sale-email">
-            Contact for Inquiry
-          </a>
+          <span className="sale-tag">Opportunity</span>
         </div>
+        <div className="sale-divider-v"></div>
+        <p className="sale-message">This site & domain are for sale</p>
+        <div className="sale-divider-v hide-mobile"></div>
+        <a href="mailto:rijoe.c.mathew@gmail.com" className="sale-btn">
+          Contact for Inquiry
+        </a>
       </motion.div>
 
       {/* Dynamic Background Lines */}
