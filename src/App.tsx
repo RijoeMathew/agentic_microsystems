@@ -8,24 +8,6 @@ function App() {
     <div className="app-container">
       <FluidBackground />
 
-      <motion.div
-        initial={{ y: -100 }}
-        animate={{ y: 0 }}
-        transition={{ duration: 0.8, ease: 'easeOut' }}
-        className="sale-header-bar"
-      >
-        <div className="sale-status">
-          <div className="sale-dot"></div>
-          <span className="sale-tag">Opportunity</span>
-        </div>
-        <div className="sale-divider-v"></div>
-        <p className="sale-message">This domain is for sale</p>
-        <div className="sale-divider-v hide-mobile"></div>
-        <a href="mailto:rijoe.c.mathew@gmail.com" className="sale-btn">
-          Contact for Inquiry
-        </a>
-      </motion.div>
-
       <div className="grid-line grid-v" style={{ left: '20%' }}></div>
       <div className="grid-line grid-v" style={{ left: '80%' }}></div>
       <div className="grid-line grid-h" style={{ top: '30%' }}></div>
@@ -38,16 +20,6 @@ function App() {
         className="glass-container"
       >
         <section className="hero-content" aria-label="Agentic Microsystems overview">
-          <motion.div
-            initial={{ opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.25, duration: 0.7 }}
-            className="hero-kicker"
-          >
-            <span></span>
-            Distributed intelligence demo
-          </motion.div>
-
           <motion.h1
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}

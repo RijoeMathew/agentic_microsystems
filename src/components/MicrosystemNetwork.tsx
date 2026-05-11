@@ -1,4 +1,4 @@
-import { type CSSProperties, useEffect, useMemo, useState } from 'react';
+import { type CSSProperties, type PointerEvent as ReactPointerEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 
 type MicrosystemStatus = 'Active' | 'Learning' | 'Queued';
@@ -6,6 +6,7 @@ type MicrosystemStatus = 'Active' | 'Learning' | 'Queued';
 type Microsystem = {
   id: string;
   name: string;
+  icon: 'hub' | 'database' | 'routing' | 'insight' | 'shield' | 'signal';
   role: string;
   agent: string;
   api: string;
@@ -20,10 +21,30 @@ type Microsystem = {
   description: string;
 };
 
+type MicrosystemPosition = Microsystem['position'];
+type MicrosystemPositions = Record<string, MicrosystemPosition>;
+type NetworkMode = 'view' | 'edit';
+type NodeDragState = {
+  id: string;
+  hasMoved: boolean;
+  pointerId: number;
+  startX: number;
+  startY: number;
+};
+type ConnectionDraft = {
+  fromId: string;
+  point: MicrosystemPosition;
+  targetId: string | null;
+};
+
+const canvasGridSize = 22;
+const canvasGridInset = 16;
+
 const microsystems: Microsystem[] = [
   {
     id: 'orchestrator',
     name: 'Flow Core',
+    icon: 'hub',
     role: 'Orchestration',
     agent: 'Coordinator Agent',
     api: '/api/demo/orchestrate',
@@ -37,6 +58,7 @@ const microsystems: Microsystem[] = [
   {
     id: 'memory',
     name: 'Memory Mesh',
+    icon: 'database',
     role: 'Context Store',
     agent: 'Recall Agent',
     api: '/api/demo/memory',
@@ -50,6 +72,7 @@ const microsystems: Microsystem[] = [
   {
     id: 'routing',
     name: 'API Relay',
+    icon: 'routing',
     role: 'Interface Layer',
     agent: 'Gateway Agent',
     api: '/api/demo/relay',
@@ -63,6 +86,7 @@ const microsystems: Microsystem[] = [
   {
     id: 'insight',
     name: 'Insight Lab',
+    icon: 'insight',
     role: 'Reasoning Cell',
     agent: 'Synthesis Agent',
     api: '/api/demo/insights',
@@ -76,6 +100,7 @@ const microsystems: Microsystem[] = [
   {
     id: 'guardrail',
     name: 'Trust Gate',
+    icon: 'shield',
     role: 'Policy Check',
     agent: 'Safety Agent',
     api: '/api/demo/guardrails',
@@ -89,6 +114,7 @@ const microsystems: Microsystem[] = [
   {
     id: 'signal',
     name: 'Signal Node',
+    icon: 'signal',
     role: 'Telemetry',
     agent: 'Observer Agent',
     api: '/api/demo/signals',
@@ -101,22 +127,135 @@ const microsystems: Microsystem[] = [
   },
 ];
 
-const connectionPairs = microsystems.flatMap((system) =>
+const initialPositions = microsystems.reduce<MicrosystemPositions>((positions, system) => {
+  positions[system.id] = system.position;
+  return positions;
+}, {});
+
+const initialConnectionIds = microsystems.flatMap((system) =>
   system.connections
     .filter((connectionId) => system.id < connectionId)
-    .map((connectionId) => ({
-      from: system,
-      to: microsystems.find((item) => item.id === connectionId),
-    }))
-    .filter((pair): pair is { from: Microsystem; to: Microsystem } => Boolean(pair.to)),
+    .map((connectionId) => getConnectionId(system.id, connectionId)),
 );
 
-export function MicrosystemNetwork() {
-  const [selectedId, setSelectedId] = useState<string | null>('orchestrator');
-  const [hoveredId, setHoveredId] = useState<string | null>(null);
+function clamp(value: number, min: number, max: number) {
+  return Math.min(Math.max(value, min), max);
+}
 
-  const selectedSystem = microsystems.find((system) => system.id === selectedId) ?? null;
-  const activeSystem = selectedSystem ?? microsystems.find((system) => system.id === hoveredId) ?? microsystems[0];
+function getConnectionId(firstId: string, secondId: string) {
+  return [firstId, secondId].sort().join('__');
+}
+
+function getConnectionIdsForSystem(systemId: string, connectionIds: string[]) {
+  return connectionIds
+    .map((connectionId) => connectionId.split('__'))
+    .filter(([firstId, secondId]) => firstId === systemId || secondId === systemId)
+    .map(([firstId, secondId]) => (firstId === systemId ? secondId : firstId))
+    .filter((id): id is string => Boolean(id));
+}
+
+function NodeIcon({ icon }: { icon: Microsystem['icon'] }) {
+  switch (icon) {
+    case 'hub':
+      return (
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <circle cx="12" cy="12" r="3.2" />
+          <circle cx="5.5" cy="6.5" r="2" />
+          <circle cx="18.5" cy="6.5" r="2" />
+          <circle cx="6.5" cy="18" r="2" />
+          <circle cx="17.5" cy="18" r="2" />
+          <path d="M9.6 9.9 7.1 8.1M14.4 9.9l2.5-1.8M9.8 14.1l-2 2M14.2 14.1l2 2" />
+        </svg>
+      );
+    case 'database':
+      return (
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <ellipse cx="12" cy="6" rx="6.8" ry="3" />
+          <path d="M5.2 6v6c0 1.7 3 3 6.8 3s6.8-1.3 6.8-3V6" />
+          <path d="M5.2 12v5.2c0 1.7 3 3 6.8 3s6.8-1.3 6.8-3V12" />
+        </svg>
+      );
+    case 'routing':
+      return (
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M4 7h9.5c2.2 0 3.5 1.2 3.5 3.2V18" />
+          <path d="m14 4 3 3-3 3" />
+          <path d="M4 17h7.5c1.9 0 3.1-1.1 3.1-3.1V6" />
+          <path d="m17.8 15.2-2.8 2.8-2.8-2.8" />
+        </svg>
+      );
+    case 'insight':
+      return (
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M5 16.8 9.1 12l3.2 2.6L18.8 7" />
+          <path d="M17.2 7h1.6v1.6" />
+          <path d="M6.3 6.4 7 4.2l.7 2.2 2.2.7-2.2.7L7 10l-.7-2.2-2.2-.7z" />
+          <path d="M17.3 16.2 18 14l.7 2.2 2.2.7-2.2.7-.7 2.2-.7-2.2-2.2-.7z" />
+        </svg>
+      );
+    case 'shield':
+      return (
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M12 3.5 18.5 6v5.2c0 4.2-2.5 7.5-6.5 9.3-4-1.8-6.5-5.1-6.5-9.3V6z" />
+          <path d="m8.8 12.1 2.1 2.1 4.5-4.7" />
+        </svg>
+      );
+    case 'signal':
+      return (
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <circle cx="12" cy="17" r="2.1" />
+          <path d="M7.8 13.2a6 6 0 0 1 8.4 0" />
+          <path d="M4.8 10.2a10.2 10.2 0 0 1 14.4 0" />
+          <path d="M2.6 7.4a13.6 13.6 0 0 1 18.8 0" />
+        </svg>
+      );
+  }
+}
+
+export function MicrosystemNetwork() {
+  const networkRef = useRef<HTMLElement | null>(null);
+  const dragStateRef = useRef<NodeDragState | null>(null);
+  const suppressClickRef = useRef(false);
+  const [mode, setMode] = useState<NetworkMode>('view');
+  const [positions, setPositions] = useState<MicrosystemPositions>(initialPositions);
+  const [connectionIds, setConnectionIds] = useState<string[]>(initialConnectionIds);
+  const [connectionDraft, setConnectionDraft] = useState<ConnectionDraft | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [hoveredId, setHoveredId] = useState<string | null>(null);
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+
+  const systems = useMemo(
+    () =>
+      microsystems.map((system) => ({
+        ...system,
+        connections: getConnectionIdsForSystem(system.id, connectionIds),
+        position: positions[system.id] ?? system.position,
+      })),
+    [connectionIds, positions],
+  );
+
+  const connectionPairs = useMemo(
+    () =>
+      connectionIds
+        .map((connectionId) => {
+          const [fromId, toId] = connectionId.split('__');
+
+          return {
+            from: systems.find((system) => system.id === fromId),
+            to: systems.find((system) => system.id === toId),
+          };
+        })
+        .filter((pair): pair is { from: Microsystem; to: Microsystem } => Boolean(pair.from && pair.to)),
+    [connectionIds, systems],
+  );
+
+  const connectionDraftSource = useMemo(
+    () => systems.find((system) => system.id === connectionDraft?.fromId) ?? null,
+    [connectionDraft, systems],
+  );
+
+  const selectedSystem = systems.find((system) => system.id === selectedId) ?? null;
+  const activeSystem = selectedSystem ?? systems.find((system) => system.id === hoveredId) ?? systems[0];
   const connectedSystems = useMemo(
     () => {
       if (!selectedSystem) {
@@ -124,11 +263,186 @@ export function MicrosystemNetwork() {
       }
 
       return selectedSystem.connections
-        .map((connectionId) => microsystems.find((system) => system.id === connectionId))
+        .map((connectionId) => systems.find((system) => system.id === connectionId))
         .filter((system): system is Microsystem => Boolean(system));
     },
-    [selectedSystem],
+    [selectedSystem, systems],
   );
+
+  function snapToCanvasGrid(value: number, edge: number, size: number) {
+    const snappedValue = canvasGridInset + Math.round((value - canvasGridInset) / canvasGridSize) * canvasGridSize;
+    return clamp(snappedValue, edge, size - edge);
+  }
+
+  function getCanvasPosition(clientX: number, clientY: number): MicrosystemPosition | null {
+    const networkElement = networkRef.current;
+
+    if (!networkElement) {
+      return null;
+    }
+
+    const bounds = networkElement.getBoundingClientRect();
+
+    return {
+      x: clamp(((clientX - bounds.left) / bounds.width) * 100, 0, 100),
+      y: clamp(((clientY - bounds.top) / bounds.height) * 100, 0, 100),
+    };
+  }
+
+  function getNodeIdFromPoint(clientX: number, clientY: number) {
+    const target = document.elementFromPoint(clientX, clientY);
+    const node = target?.closest<HTMLButtonElement>('.network-node');
+
+    return node?.dataset.nodeId ?? null;
+  }
+
+  function updateNodePosition(id: string, clientX: number, clientY: number) {
+    const networkElement = networkRef.current;
+    const nodeElement = networkElement?.querySelector<HTMLButtonElement>(`[data-node-id="${id}"]`);
+
+    if (!networkElement || !nodeElement) {
+      return;
+    }
+
+    const bounds = networkElement.getBoundingClientRect();
+    const edgeX = nodeElement.offsetWidth / 2;
+    const edgeY = nodeElement.offsetHeight / 2;
+    const localX = clientX - bounds.left;
+    const localY = clientY - bounds.top;
+    const snappedX = snapToCanvasGrid(localX, edgeX, bounds.width);
+    const snappedY = snapToCanvasGrid(localY, edgeY, bounds.height);
+    const nextPosition = {
+      x: (snappedX / bounds.width) * 100,
+      y: (snappedY / bounds.height) * 100,
+    };
+
+    setPositions((currentPositions) => ({
+      ...currentPositions,
+      [id]: nextPosition,
+    }));
+  }
+
+  function handleNodePointerDown(id: string, event: ReactPointerEvent<HTMLButtonElement>) {
+    if (mode !== 'edit') {
+      return;
+    }
+
+    if (event.button === 2) {
+      const point = getCanvasPosition(event.clientX, event.clientY);
+
+      if (!point) {
+        return;
+      }
+
+      event.preventDefault();
+      setSelectedId(null);
+      setConnectionDraft({ fromId: id, point, targetId: null });
+      event.currentTarget.setPointerCapture(event.pointerId);
+      return;
+    }
+
+    if (event.button !== 0) {
+      return;
+    }
+
+    dragStateRef.current = {
+      id,
+      hasMoved: false,
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+    };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  }
+
+  function handleNodePointerMove(event: ReactPointerEvent<HTMLButtonElement>) {
+    if (connectionDraft && event.buttons === 2) {
+      const point = getCanvasPosition(event.clientX, event.clientY);
+
+      if (!point) {
+        return;
+      }
+
+      const targetId = getNodeIdFromPoint(event.clientX, event.clientY);
+      setConnectionDraft({
+        ...connectionDraft,
+        point,
+        targetId: targetId && targetId !== connectionDraft.fromId ? targetId : null,
+      });
+      return;
+    }
+
+    if (mode !== 'edit') {
+      return;
+    }
+
+    const dragState = dragStateRef.current;
+
+    if (!dragState || dragState.pointerId !== event.pointerId) {
+      return;
+    }
+
+    const deltaX = event.clientX - dragState.startX;
+    const deltaY = event.clientY - dragState.startY;
+
+    if (!dragState.hasMoved && Math.hypot(deltaX, deltaY) < 4) {
+      return;
+    }
+
+    dragState.hasMoved = true;
+    setDraggingId(dragState.id);
+    setSelectedId(null);
+    updateNodePosition(dragState.id, event.clientX, event.clientY);
+  }
+
+  function finishNodePointerInteraction(event: ReactPointerEvent<HTMLButtonElement>) {
+    if (connectionDraft) {
+      const targetId = getNodeIdFromPoint(event.clientX, event.clientY);
+
+      if (targetId && targetId !== connectionDraft.fromId) {
+        const nextConnectionId = getConnectionId(connectionDraft.fromId, targetId);
+
+        setConnectionIds((currentConnectionIds) =>
+          currentConnectionIds.includes(nextConnectionId)
+            ? currentConnectionIds.filter((connectionId) => connectionId !== nextConnectionId)
+            : [...currentConnectionIds, nextConnectionId],
+        );
+      }
+
+      setConnectionDraft(null);
+      suppressClickRef.current = true;
+      window.setTimeout(() => {
+        suppressClickRef.current = false;
+      }, 0);
+
+      if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+        event.currentTarget.releasePointerCapture(event.pointerId);
+      }
+
+      return;
+    }
+
+    const dragState = dragStateRef.current;
+
+    if (!dragState || dragState.pointerId !== event.pointerId) {
+      return;
+    }
+
+    if (dragState.hasMoved) {
+      updateNodePosition(dragState.id, event.clientX, event.clientY);
+      suppressClickRef.current = true;
+      window.setTimeout(() => {
+        suppressClickRef.current = false;
+      }, 0);
+    }
+
+    dragStateRef.current = null;
+    setDraggingId(null);
+
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+  }
 
   useEffect(() => {
     function handlePointerDown(event: PointerEvent) {
@@ -154,7 +468,50 @@ export function MicrosystemNetwork() {
   const popoverVertical = selectedSystem && selectedSystem.position.y > 50 ? 'north' : 'south';
 
   return (
-    <section className="microsystem-network" aria-label="Interactive microsystem demo">
+    <section
+      ref={networkRef}
+      className={`microsystem-network microsystem-network-${mode}`}
+      aria-label="Interactive microsystem demo"
+      onContextMenu={(event) => {
+        if (mode === 'edit') {
+          event.preventDefault();
+        }
+      }}
+    >
+      <div className="network-mode-toggle" role="group" aria-label="Network mode">
+        <button
+          type="button"
+          className={
+            mode === 'view'
+              ? 'network-mode-button network-mode-button-view network-mode-button-active'
+              : 'network-mode-button network-mode-button-view'
+          }
+          aria-pressed={mode === 'view'}
+          onClick={() => {
+            setMode('view');
+            setConnectionDraft(null);
+            setDraggingId(null);
+          }}
+        >
+          View
+        </button>
+        <button
+          type="button"
+          className={
+            mode === 'edit'
+              ? 'network-mode-button network-mode-button-edit network-mode-button-active'
+              : 'network-mode-button network-mode-button-edit'
+          }
+          aria-pressed={mode === 'edit'}
+          onClick={() => {
+            setMode('edit');
+            setSelectedId(null);
+          }}
+        >
+          Edit
+        </button>
+      </div>
+
       <div className="network-orbit network-orbit-a"></div>
       <div className="network-orbit network-orbit-b"></div>
 
@@ -179,16 +536,25 @@ export function MicrosystemNetwork() {
 
           return (
             <g key={`${from.id}-${to.id}`}>
+              <line
+                x1={from.position.x}
+                y1={from.position.y}
+                x2={to.position.x}
+                y2={to.position.y}
+                className={isActive ? 'network-line-base network-line-base-active' : 'network-line-base'}
+                stroke={isActive ? activeSystem.accentColor : 'rgba(125, 211, 252, 0.34)'}
+              />
+
               <motion.line
                 x1={from.position.x}
                 y1={from.position.y}
                 x2={to.position.x}
                 y2={to.position.y}
                 className={isActive ? 'network-line network-line-active' : 'network-line'}
-                stroke={isActive ? activeSystem.accentColor : 'rgba(255,255,255,0.2)'}
+                stroke={isActive ? activeSystem.accentColor : 'rgba(226, 246, 255, 0.48)'}
                 filter={isActive ? 'url(#connectionGlow)' : undefined}
                 initial={{ pathLength: 0, opacity: 0 }}
-                animate={{ pathLength: 1, opacity: isActive ? 0.95 : 0.42 }}
+                animate={{ pathLength: 1, opacity: isActive ? 0.95 : 0.58 }}
                 transition={{ delay: index * 0.08, duration: 0.9, ease: 'easeOut' }}
               />
 
@@ -241,16 +607,34 @@ export function MicrosystemNetwork() {
             </g>
           );
         })}
+
+        {connectionDraft && connectionDraftSource && (
+          <line
+            x1={connectionDraftSource.position.x}
+            y1={connectionDraftSource.position.y}
+            x2={connectionDraft.point.x}
+            y2={connectionDraft.point.y}
+            className={connectionDraft.targetId ? 'network-draft-line network-draft-line-target' : 'network-draft-line'}
+          />
+        )}
       </svg>
 
-      {microsystems.map((system, index) => {
+      {systems.map((system, index) => {
         const isSelected = system.id === selectedId;
+        const isDragging = system.id === draggingId;
 
         return (
           <motion.button
             key={system.id}
             type="button"
-            className={isSelected ? 'network-node network-node-selected' : 'network-node'}
+            data-node-id={system.id}
+            className={[
+              'network-node',
+              isSelected ? 'network-node-selected' : '',
+              isDragging ? 'network-node-dragging' : '',
+            ]
+              .filter(Boolean)
+              .join(' ')}
             style={{
               left: `${system.position.x}%`,
               top: `${system.position.y}%`,
@@ -258,7 +642,22 @@ export function MicrosystemNetwork() {
             } as CSSProperties}
             aria-pressed={isSelected}
             aria-label={`${system.name}, ${system.role}`}
-            onClick={() => setSelectedId(system.id)}
+            onClick={() => {
+              if (suppressClickRef.current) {
+                return;
+              }
+
+              setSelectedId(system.id);
+            }}
+            onPointerDown={(event) => handleNodePointerDown(system.id, event)}
+            onPointerMove={handleNodePointerMove}
+            onPointerUp={finishNodePointerInteraction}
+            onPointerCancel={finishNodePointerInteraction}
+            onContextMenu={(event) => {
+              if (mode === 'edit') {
+                event.preventDefault();
+              }
+            }}
             onMouseEnter={() => setHoveredId(system.id)}
             onMouseLeave={() => setHoveredId(null)}
             initial={{ opacity: 0, scale: 0.65 }}
@@ -266,7 +665,9 @@ export function MicrosystemNetwork() {
             transition={{ delay: 0.25 + index * 0.08, type: 'spring', stiffness: 180, damping: 16 }}
           >
             <span className="node-pulse"></span>
-            <span className="node-core"></span>
+            <span className="node-core">
+              <NodeIcon icon={system.icon} />
+            </span>
             <span className="node-label">{system.name}</span>
           </motion.button>
         );
