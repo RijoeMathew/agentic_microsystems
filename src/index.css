@@ -341,6 +341,28 @@ a {
   vector-effect: non-scaling-stroke;
   stroke-dasharray: 1.8 3.2;
   animation: network-flow-line 5.5s linear infinite;
+  pointer-events: none;
+}
+
+.network-connection {
+  pointer-events: visibleStroke;
+}
+
+.network-connection-editable {
+  cursor: pointer;
+}
+
+.network-line-hit {
+  opacity: 0;
+  stroke: transparent;
+  stroke-width: 6;
+  stroke-linecap: round;
+  pointer-events: stroke;
+  vector-effect: non-scaling-stroke;
+}
+
+.network-line-hit-hovered {
+  stroke-width: 8;
 }
 
 .network-line-base {
@@ -348,6 +370,7 @@ a {
   stroke-width: 0.8;
   stroke-linecap: round;
   vector-effect: non-scaling-stroke;
+  pointer-events: none;
 }
 
 .network-line-base-active {
@@ -437,6 +460,20 @@ a {
   inset: 0.4rem;
   background: color-mix(in srgb, var(--node-color) 26%, rgba(3, 7, 18, 0.88));
   box-shadow: 0 0 34px color-mix(in srgb, var(--node-color) 52%, transparent);
+}
+
+.network-node-connect-source::before {
+  inset: 0.38rem;
+  border-color: rgba(134, 239, 172, 0.72);
+  background: color-mix(in srgb, #86efac 18%, rgba(3, 7, 18, 0.9));
+  box-shadow: 0 0 34px rgba(134, 239, 172, 0.34);
+}
+
+.network-node-connect-target::before {
+  inset: 0.28rem;
+  border-color: rgba(103, 232, 249, 0.94);
+  background: color-mix(in srgb, var(--node-color) 34%, rgba(3, 7, 18, 0.84));
+  box-shadow: 0 0 44px color-mix(in srgb, var(--node-color) 68%, transparent), 0 0 28px rgba(103, 232, 249, 0.26);
 }
 
 .network-node-dragging {

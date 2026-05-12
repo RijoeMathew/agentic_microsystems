@@ -1,4 +1,12 @@
-import { type CSSProperties, type PointerEvent as ReactPointerEvent, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  type CSSProperties,
+  type PointerEvent as ReactPointerEvent,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { motion } from 'framer-motion';
 
 type MicrosystemStatus = 'Active' | 'Learning' | 'Queued';
@@ -36,9 +44,14 @@ type ConnectionDraft = {
   point: MicrosystemPosition;
   targetId: string | null;
 };
+type ConnectionTarget = {
+  id: string;
+  position: MicrosystemPosition;
+};
 
 const canvasGridSize = 22;
 const canvasGridInset = 16;
+const connectionAttractionRadius = 64;
 
 const microsystems: Microsystem[] = [
   {
@@ -142,6 +155,11 @@ function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max);
 }
 
+function snapToCanvasGrid(value: number, edge: number, size: number) {
+  const snappedValue = canvasGridInset + Math.round((value - canvasGridInset) / canvasGridSize) * canvasGridSize;
+  return clamp(snappedValue, edge, size - edge);
+}
+
 function getConnectionId(firstId: string, secondId: string) {
   return [firstId, secondId].sort().join('__');
 }
@@ -220,8 +238,10 @@ export function MicrosystemNetwork() {
   const [positions, setPositions] = useState<MicrosystemPositions>(initialPositions);
   const [connectionIds, setConnectionIds] = useState<string[]>(initialConnectionIds);
   const [connectionDraft, setConnectionDraft] = useState<ConnectionDraft | null>(null);
+  const [pendingConnectionStartId, setPendingConnectionStartId] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
+  const [hoveredConnectionId, setHoveredConnectionId] = useState<string | null>(null);
   const [draggingId, setDraggingId] = useState<string | null>(null);
 
   const systems = useMemo(
@@ -269,11 +289,6 @@ export function MicrosystemNetwork() {
     [selectedSystem, systems],
   );
 
-  function snapToCanvasGrid(value: number, edge: number, size: number) {
-    const snappedValue = canvasGridInset + Math.round((value - canvasGridInset) / canvasGridSize) * canvasGridSize;
-    return clamp(snappedValue, edge, size - edge);
-  }
-
   function getCanvasPosition(clientX: number, clientY: number): MicrosystemPosition | null {
     const networkElement = networkRef.current;
 
@@ -289,11 +304,81 @@ export function MicrosystemNetwork() {
     };
   }
 
+  const getSnappedPosition = useCallback((id: string, position: MicrosystemPosition): MicrosystemPosition | null => {
+    const networkElement = networkRef.current;
+    const nodeElement = networkElement?.querySelector<HTMLButtonElement>(`[data-node-id="${id}"]`);
+
+    if (!networkElement || !nodeElement) {
+      return null;
+    }
+
+    const bounds = networkElement.getBoundingClientRect();
+    const edgeX = nodeElement.offsetWidth / 2;
+    const edgeY = nodeElement.offsetHeight / 2;
+    const snappedX = snapToCanvasGrid((position.x / 100) * bounds.width, edgeX, bounds.width);
+    const snappedY = snapToCanvasGrid((position.y / 100) * bounds.height, edgeY, bounds.height);
+
+    return {
+      x: (snappedX / bounds.width) * 100,
+      y: (snappedY / bounds.height) * 100,
+    };
+  }, []);
+
+  const snapPositionsToCanvasGrid = useCallback((currentPositions: MicrosystemPositions) => {
+    return Object.fromEntries(
+      Object.entries(currentPositions).map(([id, position]) => [id, getSnappedPosition(id, position) ?? position]),
+    ) as MicrosystemPositions;
+  }, [getSnappedPosition]);
+
   function getNodeIdFromPoint(clientX: number, clientY: number) {
     const target = document.elementFromPoint(clientX, clientY);
     const node = target?.closest<HTMLButtonElement>('.network-node');
 
     return node?.dataset.nodeId ?? null;
+  }
+
+  function getConnectionTargetFromPoint(sourceId: string, clientX: number, clientY: number): ConnectionTarget | null {
+    const networkElement = networkRef.current;
+
+    if (!networkElement) {
+      return null;
+    }
+
+    let nearestTarget: (ConnectionTarget & { distance: number }) | null = null;
+
+    for (const node of Array.from(networkElement.querySelectorAll<HTMLButtonElement>('.network-node'))) {
+      const id = node.dataset.nodeId;
+
+      if (!id || id === sourceId) {
+        continue;
+      }
+
+      const bounds = node.getBoundingClientRect();
+      const centerX = bounds.left + bounds.width / 2;
+      const centerY = bounds.top + bounds.height / 2;
+      const distance = Math.hypot(clientX - centerX, clientY - centerY);
+      const system = systems.find((item) => item.id === id);
+
+      if (!system || distance > connectionAttractionRadius) {
+        continue;
+      }
+
+      if (!nearestTarget || distance < nearestTarget.distance) {
+        nearestTarget = { distance, id, position: system.position };
+      }
+    }
+
+    return nearestTarget ? { id: nearestTarget.id, position: nearestTarget.position } : null;
+  }
+
+  function toggleConnection(fromId: string, toId: string) {
+    const nextConnectionId = getConnectionId(fromId, toId);
+
+    setConnectionIds((currentConnectionIds) =>
+      currentConnectionIds.includes(nextConnectionId)
+        ? currentConnectionIds.filter((connectionId) => connectionId !== nextConnectionId)
+        : [...currentConnectionIds, nextConnectionId],
+    );
   }
 
   function updateNodePosition(id: string, clientX: number, clientY: number) {
@@ -336,6 +421,7 @@ export function MicrosystemNetwork() {
 
       event.preventDefault();
       setSelectedId(null);
+      setPendingConnectionStartId(null);
       setConnectionDraft({ fromId: id, point, targetId: null });
       event.currentTarget.setPointerCapture(event.pointerId);
       return;
@@ -363,11 +449,11 @@ export function MicrosystemNetwork() {
         return;
       }
 
-      const targetId = getNodeIdFromPoint(event.clientX, event.clientY);
+      const target = getConnectionTargetFromPoint(connectionDraft.fromId, event.clientX, event.clientY);
       setConnectionDraft({
         ...connectionDraft,
-        point,
-        targetId: targetId && targetId !== connectionDraft.fromId ? targetId : null,
+        point: target?.position ?? point,
+        targetId: target?.id ?? null,
       });
       return;
     }
@@ -392,21 +478,17 @@ export function MicrosystemNetwork() {
     dragState.hasMoved = true;
     setDraggingId(dragState.id);
     setSelectedId(null);
+    setPendingConnectionStartId(null);
     updateNodePosition(dragState.id, event.clientX, event.clientY);
   }
 
   function finishNodePointerInteraction(event: ReactPointerEvent<HTMLButtonElement>) {
     if (connectionDraft) {
-      const targetId = getNodeIdFromPoint(event.clientX, event.clientY);
+      const target = getConnectionTargetFromPoint(connectionDraft.fromId, event.clientX, event.clientY);
+      const targetId = target?.id ?? getNodeIdFromPoint(event.clientX, event.clientY);
 
       if (targetId && targetId !== connectionDraft.fromId) {
-        const nextConnectionId = getConnectionId(connectionDraft.fromId, targetId);
-
-        setConnectionIds((currentConnectionIds) =>
-          currentConnectionIds.includes(nextConnectionId)
-            ? currentConnectionIds.filter((connectionId) => connectionId !== nextConnectionId)
-            : [...currentConnectionIds, nextConnectionId],
-        );
+        toggleConnection(connectionDraft.fromId, targetId);
       }
 
       setConnectionDraft(null);
@@ -455,6 +537,8 @@ export function MicrosystemNetwork() {
       }
 
       setSelectedId(null);
+      setPendingConnectionStartId(null);
+      setConnectionDraft(null);
     }
 
     document.addEventListener('pointerdown', handlePointerDown);
@@ -462,7 +546,27 @@ export function MicrosystemNetwork() {
     return () => {
       document.removeEventListener('pointerdown', handlePointerDown);
     };
-  }, []);
+  }, [snapPositionsToCanvasGrid]);
+
+  useEffect(() => {
+    const networkElement = networkRef.current;
+
+    if (!networkElement) {
+      return;
+    }
+
+    const snapCurrentPositions = () => {
+      setPositions((currentPositions) => snapPositionsToCanvasGrid(currentPositions));
+    };
+    const animationFrameId = window.requestAnimationFrame(snapCurrentPositions);
+    const resizeObserver = new ResizeObserver(snapCurrentPositions);
+    resizeObserver.observe(networkElement);
+
+    return () => {
+      window.cancelAnimationFrame(animationFrameId);
+      resizeObserver.disconnect();
+    };
+  }, [snapPositionsToCanvasGrid]);
 
   const popoverHorizontal = selectedSystem && selectedSystem.position.x > 50 ? 'west' : 'east';
   const popoverVertical = selectedSystem && selectedSystem.position.y > 50 ? 'north' : 'south';
@@ -490,6 +594,7 @@ export function MicrosystemNetwork() {
           onClick={() => {
             setMode('view');
             setConnectionDraft(null);
+            setPendingConnectionStartId(null);
             setDraggingId(null);
           }}
         >
@@ -506,6 +611,7 @@ export function MicrosystemNetwork() {
           onClick={() => {
             setMode('edit');
             setSelectedId(null);
+            setPendingConnectionStartId(null);
           }}
         >
           Edit
@@ -527,22 +633,59 @@ export function MicrosystemNetwork() {
         </defs>
 
         {connectionPairs.map(({ from, to }, index) => {
+          const connectionId = getConnectionId(from.id, to.id);
+          const isConnectionHovered = connectionId === hoveredConnectionId;
           const isActive =
             from.id === selectedId ||
             to.id === selectedId ||
             from.id === hoveredId ||
-            to.id === hoveredId;
-          const flowColor = isActive ? activeSystem.accentColor : 'rgba(125, 211, 252, 0.5)';
+            to.id === hoveredId ||
+            isConnectionHovered;
+          const connectionColor = isConnectionHovered ? '#86efac' : activeSystem.accentColor;
+          const flowColor = isActive ? connectionColor : 'rgba(125, 211, 252, 0.5)';
 
           return (
-            <g key={`${from.id}-${to.id}`}>
+            <g
+              key={connectionId}
+              className={mode === 'edit' ? 'network-connection network-connection-editable' : 'network-connection'}
+              onPointerEnter={() => setHoveredConnectionId(connectionId)}
+              onPointerLeave={() => setHoveredConnectionId((currentId) => (currentId === connectionId ? null : currentId))}
+              onDoubleClick={() => {
+                if (mode !== 'edit') {
+                  return;
+                }
+
+                setConnectionIds((currentConnectionIds) =>
+                  currentConnectionIds.filter((currentConnectionId) => currentConnectionId !== connectionId),
+                );
+                setHoveredConnectionId(null);
+                setConnectionDraft(null);
+                setPendingConnectionStartId(null);
+              }}
+            >
               <line
                 x1={from.position.x}
                 y1={from.position.y}
                 x2={to.position.x}
                 y2={to.position.y}
-                className={isActive ? 'network-line-base network-line-base-active' : 'network-line-base'}
-                stroke={isActive ? activeSystem.accentColor : 'rgba(125, 211, 252, 0.34)'}
+                className={
+                  isConnectionHovered
+                    ? 'network-line-hit network-line-hit-hovered'
+                    : 'network-line-hit'
+                }
+              />
+
+              <line
+                x1={from.position.x}
+                y1={from.position.y}
+                x2={to.position.x}
+                y2={to.position.y}
+                className={
+                  isActive
+                    ? 'network-line-base network-line-base-active'
+                    : 'network-line-base'
+                }
+                stroke={isActive ? connectionColor : 'rgba(125, 211, 252, 0.34)'}
               />
 
               <motion.line
@@ -551,7 +694,7 @@ export function MicrosystemNetwork() {
                 x2={to.position.x}
                 y2={to.position.y}
                 className={isActive ? 'network-line network-line-active' : 'network-line'}
-                stroke={isActive ? activeSystem.accentColor : 'rgba(226, 246, 255, 0.48)'}
+                stroke={isActive ? connectionColor : 'rgba(226, 246, 255, 0.48)'}
                 filter={isActive ? 'url(#connectionGlow)' : undefined}
                 initial={{ pathLength: 0, opacity: 0 }}
                 animate={{ pathLength: 1, opacity: isActive ? 0.95 : 0.58 }}
@@ -622,6 +765,8 @@ export function MicrosystemNetwork() {
       {systems.map((system, index) => {
         const isSelected = system.id === selectedId;
         const isDragging = system.id === draggingId;
+        const isConnectionSource = pendingConnectionStartId === system.id || connectionDraft?.fromId === system.id;
+        const isConnectionTarget = connectionDraft?.targetId === system.id;
 
         return (
           <motion.button
@@ -632,6 +777,8 @@ export function MicrosystemNetwork() {
               'network-node',
               isSelected ? 'network-node-selected' : '',
               isDragging ? 'network-node-dragging' : '',
+              isConnectionSource ? 'network-node-connect-source' : '',
+              isConnectionTarget ? 'network-node-connect-target' : '',
             ]
               .filter(Boolean)
               .join(' ')}
@@ -644,6 +791,19 @@ export function MicrosystemNetwork() {
             aria-label={`${system.name}, ${system.role}`}
             onClick={() => {
               if (suppressClickRef.current) {
+                return;
+              }
+
+              if (mode === 'edit') {
+                setSelectedId(null);
+
+                if (pendingConnectionStartId && pendingConnectionStartId !== system.id) {
+                  toggleConnection(pendingConnectionStartId, system.id);
+                  setPendingConnectionStartId(null);
+                  return;
+                }
+
+                setPendingConnectionStartId((currentId) => (currentId === system.id ? null : system.id));
                 return;
               }
 
