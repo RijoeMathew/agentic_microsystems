@@ -1,7 +1,7 @@
 import { createHash, randomBytes, scrypt as scryptCallback, timingSafeEqual } from 'node:crypto';
 import { createServer } from 'node:http';
 import { promisify } from 'node:util';
-import { MongoClient } from 'mongodb';
+import { MongoClient, ObjectId } from 'mongodb';
 
 const scrypt = promisify(scryptCallback);
 const port = Number(process.env.PORT ?? 8787);
@@ -30,6 +30,7 @@ const passwordOptions = {
 const mongoClient = new MongoClient(mongoUri);
 let users;
 let sessions;
+let meshDesigns;
 let databaseReadyPromise;
 
 function ensureDatabase() {
@@ -38,10 +39,12 @@ function ensureDatabase() {
       const database = mongoClient.db(databaseName);
       users = database.collection('users');
       sessions = database.collection('sessions');
+      meshDesigns = database.collection('mesh_designs');
 
       await users.createIndex({ email: 1 }, { unique: true });
       await sessions.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 });
       await sessions.createIndex({ tokenHash: 1 }, { unique: true });
+      await meshDesigns.createIndex({ userId: 1, normalizedName: 1 }, { unique: true });
     });
   }
 
@@ -58,6 +61,43 @@ function validateEmail(email) {
 
 function validatePassword(password) {
   return typeof password === 'string' && password.length >= 12;
+}
+
+function normalizeDesignName(name) {
+  return name.trim().replace(/\s+/g, ' ');
+}
+
+function validateDesignName(name) {
+  return typeof name === 'string' && normalizeDesignName(name).length > 0 && normalizeDesignName(name).length <= 80;
+}
+
+function validateDesignPayload(design) {
+  if (!design || typeof design !== 'object' || Array.isArray(design)) {
+    return false;
+  }
+
+  const { positions, connectionIds } = design;
+
+  if (!positions || typeof positions !== 'object' || Array.isArray(positions) || !Array.isArray(connectionIds)) {
+    return false;
+  }
+
+  const validPositions = Object.values(positions).every(
+    (position) =>
+      position &&
+      typeof position === 'object' &&
+      Number.isFinite(position.x) &&
+      Number.isFinite(position.y) &&
+      position.x >= 0 &&
+      position.x <= 100 &&
+      position.y >= 0 &&
+      position.y <= 100,
+  );
+  const validConnections = connectionIds.every(
+    (connectionId) => typeof connectionId === 'string' && /^[a-z0-9-]+__[a-z0-9-]+$/i.test(connectionId),
+  );
+
+  return validPositions && validConnections;
 }
 
 function json(response, statusCode, body, headers = {}) {
@@ -199,7 +239,7 @@ const server = createServer(async (request, response) => {
     response.writeHead(204, {
       ...responseCorsHeaders,
       'Access-Control-Allow-Headers': 'Content-Type',
-      'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
+      'Access-Control-Allow-Methods': 'GET,POST,PUT,OPTIONS',
     });
     response.end();
     return;
@@ -305,10 +345,168 @@ const server = createServer(async (request, response) => {
       return;
     }
 
+    if (request.method === 'GET' && request.url === '/api/mesh-designs') {
+      const user = await getSessionUser(request);
+
+      if (!user) {
+        json(response, 401, { error: 'Not authenticated.' }, responseCorsHeaders);
+        return;
+      }
+
+      const designs = await meshDesigns
+        .find(
+          { userId: user._id },
+          {
+            projection: {
+              name: 1,
+              positions: 1,
+              connectionIds: 1,
+              createdAt: 1,
+              updatedAt: 1,
+            },
+          },
+        )
+        .sort({ updatedAt: -1, createdAt: -1 })
+        .toArray();
+
+      json(
+        response,
+        200,
+        {
+          designs: designs.map((design) => ({
+            id: design._id.toString(),
+            name: design.name,
+            positions: design.positions,
+            connectionIds: design.connectionIds,
+            createdAt: design.createdAt,
+            updatedAt: design.updatedAt,
+          })),
+        },
+        responseCorsHeaders,
+      );
+      return;
+    }
+
+    if (request.method === 'POST' && request.url === '/api/mesh-designs') {
+      const user = await getSessionUser(request);
+
+      if (!user) {
+        json(response, 401, { error: 'Not authenticated.' }, responseCorsHeaders);
+        return;
+      }
+
+      const { name = '', positions, connectionIds } = await readJsonBody(request);
+
+      if (!validateDesignName(name)) {
+        json(response, 400, { error: 'Use a design name between 1 and 80 characters.' }, responseCorsHeaders);
+        return;
+      }
+
+      if (!validateDesignPayload({ positions, connectionIds })) {
+        json(response, 400, { error: 'Design data is invalid.' }, responseCorsHeaders);
+        return;
+      }
+
+      const normalizedName = normalizeDesignName(name);
+      const now = new Date();
+      const insertResult = await meshDesigns.insertOne({
+        userId: user._id,
+        name: normalizedName,
+        normalizedName: normalizedName.toLowerCase(),
+        positions,
+        connectionIds,
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      json(
+        response,
+        201,
+        {
+          design: {
+            id: insertResult.insertedId.toString(),
+            name: normalizedName,
+            positions,
+            connectionIds,
+            createdAt: now,
+            updatedAt: now,
+          },
+        },
+        responseCorsHeaders,
+      );
+      return;
+    }
+
+    const designMatch = request.url?.match(/^\/api\/mesh-designs\/([a-f0-9]{24})$/i);
+
+    if (request.method === 'PUT' && designMatch) {
+      const user = await getSessionUser(request);
+
+      if (!user) {
+        json(response, 401, { error: 'Not authenticated.' }, responseCorsHeaders);
+        return;
+      }
+
+      const { positions, connectionIds } = await readJsonBody(request);
+
+      if (!validateDesignPayload({ positions, connectionIds })) {
+        json(response, 400, { error: 'Design data is invalid.' }, responseCorsHeaders);
+        return;
+      }
+
+      const updatedAt = new Date();
+      const updateResult = await meshDesigns.findOneAndUpdate(
+        { _id: new ObjectId(designMatch[1]), userId: user._id },
+        {
+          $set: {
+            positions,
+            connectionIds,
+            updatedAt,
+          },
+        },
+        {
+          returnDocument: 'after',
+          projection: {
+            name: 1,
+            positions: 1,
+            connectionIds: 1,
+            createdAt: 1,
+            updatedAt: 1,
+          },
+        },
+      );
+
+      if (!updateResult) {
+        json(response, 404, { error: 'Design not found.' }, responseCorsHeaders);
+        return;
+      }
+
+      json(
+        response,
+        200,
+        {
+          design: {
+            id: updateResult._id.toString(),
+            name: updateResult.name,
+            positions: updateResult.positions,
+            connectionIds: updateResult.connectionIds,
+            createdAt: updateResult.createdAt,
+            updatedAt: updateResult.updatedAt,
+          },
+        },
+        responseCorsHeaders,
+      );
+      return;
+    }
+
     json(response, 404, { error: 'Not found.' }, responseCorsHeaders);
   } catch (error) {
     if (error?.code === 11000) {
-      json(response, 409, { error: 'An account with this email already exists.' }, responseCorsHeaders);
+      const duplicateMessage = request.url?.startsWith('/api/mesh-designs')
+        ? 'A design with this name already exists.'
+        : 'An account with this email already exists.';
+
+      json(response, 409, { error: duplicateMessage }, responseCorsHeaders);
       return;
     }
 

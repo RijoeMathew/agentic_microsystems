@@ -8,6 +8,13 @@ import {
   useState,
 } from 'react';
 import { motion } from 'framer-motion';
+import {
+  createMeshDesign,
+  getMeshDesigns,
+  type MeshDesign,
+  type MeshDesignSnapshot,
+  updateMeshDesign,
+} from '../lib/meshDesigns';
 
 type MicrosystemStatus = 'Active' | 'Learning' | 'Queued';
 
@@ -150,6 +157,7 @@ const initialConnectionIds = microsystems.flatMap((system) =>
     .filter((connectionId) => system.id < connectionId)
     .map((connectionId) => getConnectionId(system.id, connectionId)),
 );
+const knownMicrosystemIds = new Set(microsystems.map((system) => system.id));
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max);
@@ -170,6 +178,40 @@ function getConnectionIdsForSystem(systemId: string, connectionIds: string[]) {
     .filter(([firstId, secondId]) => firstId === systemId || secondId === systemId)
     .map(([firstId, secondId]) => (firstId === systemId ? secondId : firstId))
     .filter((id): id is string => Boolean(id));
+}
+
+function normalizePositions(positions: MicrosystemPositions) {
+  return microsystems.reduce<MicrosystemPositions>((normalizedPositions, system) => {
+    const position = positions[system.id];
+
+    normalizedPositions[system.id] =
+      position && Number.isFinite(position.x) && Number.isFinite(position.y)
+        ? {
+            x: clamp(position.x, 0, 100),
+            y: clamp(position.y, 0, 100),
+          }
+        : system.position;
+
+    return normalizedPositions;
+  }, {});
+}
+
+function normalizeConnectionIds(connectionIds: string[]) {
+  return Array.from(
+    new Set(
+      connectionIds.filter((connectionId) => {
+        const [fromId, toId] = connectionId.split('__');
+
+        return Boolean(
+          fromId &&
+            toId &&
+            fromId !== toId &&
+            knownMicrosystemIds.has(fromId) &&
+            knownMicrosystemIds.has(toId),
+        );
+      }),
+    ),
+  );
 }
 
 function NodeIcon({ icon }: { icon: Microsystem['icon'] }) {
@@ -243,6 +285,13 @@ export function MicrosystemNetwork() {
   const [hoveredId, setHoveredId] = useState<string | null>(null);
   const [hoveredConnectionId, setHoveredConnectionId] = useState<string | null>(null);
   const [draggingId, setDraggingId] = useState<string | null>(null);
+  const [savedDesigns, setSavedDesigns] = useState<MeshDesign[]>([]);
+  const [activeDesignId, setActiveDesignId] = useState<string | null>(null);
+  const [isLoadingDesigns, setIsLoadingDesigns] = useState(true);
+  const [isSavingDesign, setIsSavingDesign] = useState(false);
+  const [isSaveDialogOpen, setIsSaveDialogOpen] = useState(false);
+  const [designNameDraft, setDesignNameDraft] = useState('');
+  const [designMessage, setDesignMessage] = useState<string | null>(null);
 
   const systems = useMemo(
     () =>
@@ -276,6 +325,7 @@ export function MicrosystemNetwork() {
 
   const selectedSystem = systems.find((system) => system.id === selectedId) ?? null;
   const activeSystem = selectedSystem ?? systems.find((system) => system.id === hoveredId) ?? systems[0];
+  const activeSavedDesign = savedDesigns.find((design) => design.id === activeDesignId) ?? null;
   const connectedSystems = useMemo(
     () => {
       if (!selectedSystem) {
@@ -379,6 +429,75 @@ export function MicrosystemNetwork() {
         ? currentConnectionIds.filter((connectionId) => connectionId !== nextConnectionId)
         : [...currentConnectionIds, nextConnectionId],
     );
+  }
+
+  function getCurrentSnapshot(): MeshDesignSnapshot {
+    return {
+      positions: normalizePositions(snapPositionsToCanvasGrid(positions)),
+      connectionIds: normalizeConnectionIds(connectionIds),
+    };
+  }
+
+  function applyDesign(design: MeshDesign) {
+    setPositions(snapPositionsToCanvasGrid(normalizePositions(design.positions)));
+    setConnectionIds(normalizeConnectionIds(design.connectionIds));
+    setSelectedId(null);
+    setPendingConnectionStartId(null);
+    setConnectionDraft(null);
+    setActiveDesignId(design.id);
+    setDesignMessage(`Loaded "${design.name}".`);
+  }
+
+  async function handleSaveCurrentDesign() {
+    if (activeSavedDesign) {
+      setIsSavingDesign(true);
+      setDesignMessage(null);
+
+      try {
+        const { design } = await updateMeshDesign(activeSavedDesign.id, getCurrentSnapshot());
+
+        setSavedDesigns((currentDesigns) =>
+          currentDesigns.map((currentDesign) => (currentDesign.id === design.id ? design : currentDesign)),
+        );
+        setDesignMessage(`Saved "${design.name}".`);
+      } catch (error) {
+        setDesignMessage(error instanceof Error ? error.message : 'Could not save the design.');
+      } finally {
+        setIsSavingDesign(false);
+      }
+
+      return;
+    }
+
+    setDesignNameDraft('');
+    setIsSaveDialogOpen(true);
+    setDesignMessage(null);
+  }
+
+  async function handleCreateDesign() {
+    const trimmedName = designNameDraft.trim().replace(/\s+/g, ' ');
+
+    if (!trimmedName) {
+      setDesignMessage('Enter a unique design name.');
+      return;
+    }
+
+    setIsSavingDesign(true);
+    setDesignMessage(null);
+
+    try {
+      const { design } = await createMeshDesign(trimmedName, getCurrentSnapshot());
+
+      setSavedDesigns((currentDesigns) => [design, ...currentDesigns]);
+      setActiveDesignId(design.id);
+      setIsSaveDialogOpen(false);
+      setDesignNameDraft('');
+      setDesignMessage(`Saved "${design.name}".`);
+    } catch (error) {
+      setDesignMessage(error instanceof Error ? error.message : 'Could not save the design.');
+    } finally {
+      setIsSavingDesign(false);
+    }
   }
 
   function updateNodePosition(id: string, clientX: number, clientY: number) {
@@ -549,6 +668,31 @@ export function MicrosystemNetwork() {
   }, [snapPositionsToCanvasGrid]);
 
   useEffect(() => {
+    let isMounted = true;
+
+    getMeshDesigns()
+      .then(({ designs }) => {
+        if (isMounted) {
+          setSavedDesigns(designs);
+        }
+      })
+      .catch((error) => {
+        if (isMounted) {
+          setDesignMessage(error instanceof Error ? error.message : 'Could not load saved designs.');
+        }
+      })
+      .finally(() => {
+        if (isMounted) {
+          setIsLoadingDesigns(false);
+        }
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
     const networkElement = networkRef.current;
 
     if (!networkElement) {
@@ -572,51 +716,98 @@ export function MicrosystemNetwork() {
   const popoverVertical = selectedSystem && selectedSystem.position.y > 50 ? 'north' : 'south';
 
   return (
-    <section
-      ref={networkRef}
-      className={`microsystem-network microsystem-network-${mode}`}
-      aria-label="Interactive microsystem demo"
-      onContextMenu={(event) => {
-        if (mode === 'edit') {
-          event.preventDefault();
-        }
-      }}
-    >
-      <div className="network-mode-toggle" role="group" aria-label="Network mode">
-        <button
-          type="button"
-          className={
-            mode === 'view'
-              ? 'network-mode-button network-mode-button-view network-mode-button-active'
-              : 'network-mode-button network-mode-button-view'
+    <div className="network-workspace">
+      <aside className="network-sidebar" aria-label="Saved mesh designs">
+        <div className="network-sidebar-header">
+          <span>Saved Designs</span>
+          <strong>{savedDesigns.length}</strong>
+        </div>
+
+        <div className="network-sidebar-list">
+          {isLoadingDesigns && <p className="network-sidebar-empty">Loading...</p>}
+
+          {!isLoadingDesigns && savedDesigns.length === 0 && (
+            <p className="network-sidebar-empty">No saved designs yet.</p>
+          )}
+
+          {savedDesigns.map((design) => (
+            <button
+              key={design.id}
+              type="button"
+              className={
+                design.id === activeDesignId
+                  ? 'network-design-item network-design-item-active'
+                  : 'network-design-item'
+              }
+              onClick={() => applyDesign(design)}
+            >
+              <span>{design.name}</span>
+              <time>{new Date(design.updatedAt).toLocaleDateString()}</time>
+            </button>
+          ))}
+        </div>
+
+        {designMessage && <p className="network-sidebar-message">{designMessage}</p>}
+      </aside>
+
+      <section
+        ref={networkRef}
+        className={`microsystem-network microsystem-network-${mode}`}
+        aria-label="Interactive microsystem demo"
+        onContextMenu={(event) => {
+          if (mode === 'edit') {
+            event.preventDefault();
           }
-          aria-pressed={mode === 'view'}
-          onClick={() => {
-            setMode('view');
-            setConnectionDraft(null);
-            setPendingConnectionStartId(null);
-            setDraggingId(null);
-          }}
-        >
-          View
-        </button>
-        <button
-          type="button"
-          className={
-            mode === 'edit'
-              ? 'network-mode-button network-mode-button-edit network-mode-button-active'
-              : 'network-mode-button network-mode-button-edit'
-          }
-          aria-pressed={mode === 'edit'}
-          onClick={() => {
-            setMode('edit');
-            setSelectedId(null);
-            setPendingConnectionStartId(null);
-          }}
-        >
-          Edit
-        </button>
-      </div>
+        }}
+      >
+        <div className="network-toolbar">
+          {mode === 'edit' && (
+            <button
+              type="button"
+              className="network-save-button"
+              onClick={handleSaveCurrentDesign}
+              disabled={isSavingDesign}
+            >
+              {activeSavedDesign ? 'Save' : 'Save design'}
+            </button>
+          )}
+
+          <div className="network-mode-toggle" role="group" aria-label="Network mode">
+            <button
+              type="button"
+              className={
+                mode === 'view'
+                  ? 'network-mode-button network-mode-button-view network-mode-button-active'
+                  : 'network-mode-button network-mode-button-view'
+              }
+              aria-pressed={mode === 'view'}
+              onClick={() => {
+                setMode('view');
+                setConnectionDraft(null);
+                setPendingConnectionStartId(null);
+                setDraggingId(null);
+              }}
+            >
+              View
+            </button>
+            <button
+              type="button"
+              className={
+                mode === 'edit'
+                  ? 'network-mode-button network-mode-button-edit network-mode-button-active'
+                  : 'network-mode-button network-mode-button-edit'
+              }
+              aria-pressed={mode === 'edit'}
+              onClick={() => {
+                setMode('edit');
+                setSelectedId(null);
+                setPendingConnectionStartId(null);
+              }}
+            >
+              Edit
+            </button>
+          </div>
+        </div>
 
       <div className="network-orbit network-orbit-a"></div>
       <div className="network-orbit network-orbit-b"></div>
@@ -879,6 +1070,44 @@ export function MicrosystemNetwork() {
           </div>
         </motion.article>
       )}
-    </section>
+
+        {isSaveDialogOpen && (
+          <div className="network-dialog-backdrop" role="presentation">
+            <form
+              className="network-dialog"
+              onSubmit={(event) => {
+                event.preventDefault();
+                void handleCreateDesign();
+              }}
+            >
+              <label>
+                <span>Unique design name</span>
+                <input
+                  autoFocus
+                  value={designNameDraft}
+                  maxLength={80}
+                  onChange={(event) => setDesignNameDraft(event.target.value)}
+                />
+              </label>
+
+              <div className="network-dialog-actions">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsSaveDialogOpen(false);
+                    setDesignNameDraft('');
+                  }}
+                >
+                  Cancel
+                </button>
+                <button type="submit" disabled={isSavingDesign}>
+                  Save
+                </button>
+              </div>
+            </form>
+          </div>
+        )}
+      </section>
+    </div>
   );
 }
