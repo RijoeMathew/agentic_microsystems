@@ -11,29 +11,18 @@ import { motion } from 'framer-motion';
 import {
   createMeshDesign,
   getMeshDesigns,
+  type MeshDesignNode,
   type MeshDesign,
   type MeshDesignSnapshot,
   updateMeshDesign,
 } from '../lib/meshDesigns';
 
-type MicrosystemStatus = 'Active' | 'Learning' | 'Queued';
-
-type Microsystem = {
-  id: string;
-  name: string;
-  icon: 'hub' | 'database' | 'routing' | 'insight' | 'shield' | 'signal';
-  role: string;
-  agent: string;
-  api: string;
-  status: MicrosystemStatus;
-  latency: string;
-  accentColor: string;
+type Microsystem = MeshDesignNode & {
   position: {
     x: number;
     y: number;
   };
   connections: string[];
-  description: string;
 };
 
 type MicrosystemPosition = Microsystem['position'];
@@ -54,6 +43,15 @@ type ConnectionDraft = {
 type ConnectionTarget = {
   id: string;
   position: MicrosystemPosition;
+};
+type PaletteDragState = {
+  templateId: string;
+  pointerId: number;
+  clientX: number;
+  clientY: number;
+};
+type NodeTemplate = Omit<MeshDesignNode, 'id'> & {
+  id: string;
 };
 
 const canvasGridSize = 22;
@@ -147,6 +145,23 @@ const microsystems: Microsystem[] = [
   },
 ];
 
+const nodeTemplates: NodeTemplate[] = microsystems.map((system) => ({
+  id: system.id,
+  name: system.name,
+  icon: system.icon,
+  role: system.role,
+  agent: system.agent,
+  api: system.api,
+  status: system.status,
+  latency: system.latency,
+  accentColor: system.accentColor,
+  description: system.description,
+}));
+const defaultNodes: MeshDesignNode[] = nodeTemplates.map(({ id, ...template }) => ({
+  id,
+  ...template,
+}));
+
 const initialPositions = microsystems.reduce<MicrosystemPositions>((positions, system) => {
   positions[system.id] = system.position;
   return positions;
@@ -157,8 +172,6 @@ const initialConnectionIds = microsystems.flatMap((system) =>
     .filter((connectionId) => system.id < connectionId)
     .map((connectionId) => getConnectionId(system.id, connectionId)),
 );
-const knownMicrosystemIds = new Set(microsystems.map((system) => system.id));
-
 function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max);
 }
@@ -180,9 +193,39 @@ function getConnectionIdsForSystem(systemId: string, connectionIds: string[]) {
     .filter((id): id is string => Boolean(id));
 }
 
-function normalizePositions(positions: MicrosystemPositions) {
-  return microsystems.reduce<MicrosystemPositions>((normalizedPositions, system) => {
+function cloneDefaultNodes() {
+  return defaultNodes.map((node) => ({ ...node }));
+}
+
+function normalizeNodes(nodes: MeshDesignNode[] | undefined) {
+  if (!Array.isArray(nodes)) {
+    return cloneDefaultNodes();
+  }
+
+  return nodes
+    .filter(
+      (node): node is MeshDesignNode =>
+        Boolean(
+          node &&
+            node.id &&
+            node.name &&
+            node.icon &&
+            node.role &&
+            node.agent &&
+            node.api &&
+            node.status &&
+            node.latency &&
+            node.accentColor &&
+            node.description,
+        ),
+    )
+    .map((node) => ({ ...node }));
+}
+
+function normalizePositions(positions: MicrosystemPositions, nodes: MeshDesignNode[]) {
+  return nodes.reduce<MicrosystemPositions>((normalizedPositions, system) => {
     const position = positions[system.id];
+    const defaultPosition = initialPositions[system.id] ?? { x: 50, y: 50 };
 
     normalizedPositions[system.id] =
       position && Number.isFinite(position.x) && Number.isFinite(position.y)
@@ -190,13 +233,13 @@ function normalizePositions(positions: MicrosystemPositions) {
             x: clamp(position.x, 0, 100),
             y: clamp(position.y, 0, 100),
           }
-        : system.position;
+        : defaultPosition;
 
     return normalizedPositions;
   }, {});
 }
 
-function normalizeConnectionIds(connectionIds: string[]) {
+function normalizeConnectionIds(connectionIds: string[], nodeIds: Set<string>) {
   return Array.from(
     new Set(
       connectionIds.filter((connectionId) => {
@@ -206,8 +249,8 @@ function normalizeConnectionIds(connectionIds: string[]) {
           fromId &&
             toId &&
             fromId !== toId &&
-            knownMicrosystemIds.has(fromId) &&
-            knownMicrosystemIds.has(toId),
+            nodeIds.has(fromId) &&
+            nodeIds.has(toId),
         );
       }),
     ),
@@ -275,8 +318,10 @@ function NodeIcon({ icon }: { icon: Microsystem['icon'] }) {
 export function MicrosystemNetwork() {
   const networkRef = useRef<HTMLElement | null>(null);
   const dragStateRef = useRef<NodeDragState | null>(null);
+  const nodeSequenceRef = useRef(0);
   const suppressClickRef = useRef(false);
   const [mode, setMode] = useState<NetworkMode>('view');
+  const [nodes, setNodes] = useState<MeshDesignNode[]>(cloneDefaultNodes);
   const [positions, setPositions] = useState<MicrosystemPositions>(initialPositions);
   const [connectionIds, setConnectionIds] = useState<string[]>(initialConnectionIds);
   const [connectionDraft, setConnectionDraft] = useState<ConnectionDraft | null>(null);
@@ -292,15 +337,16 @@ export function MicrosystemNetwork() {
   const [isSaveDialogOpen, setIsSaveDialogOpen] = useState(false);
   const [designNameDraft, setDesignNameDraft] = useState('');
   const [designMessage, setDesignMessage] = useState<string | null>(null);
+  const [paletteDrag, setPaletteDrag] = useState<PaletteDragState | null>(null);
 
   const systems = useMemo(
     () =>
-      microsystems.map((system) => ({
+      nodes.map((system) => ({
         ...system,
         connections: getConnectionIdsForSystem(system.id, connectionIds),
-        position: positions[system.id] ?? system.position,
+        position: positions[system.id] ?? initialPositions[system.id] ?? { x: 50, y: 50 },
       })),
-    [connectionIds, positions],
+    [connectionIds, nodes, positions],
   );
 
   const connectionPairs = useMemo(
@@ -324,7 +370,7 @@ export function MicrosystemNetwork() {
   );
 
   const selectedSystem = systems.find((system) => system.id === selectedId) ?? null;
-  const activeSystem = selectedSystem ?? systems.find((system) => system.id === hoveredId) ?? systems[0];
+  const activeSystem = selectedSystem ?? systems.find((system) => system.id === hoveredId) ?? systems[0] ?? null;
   const activeSavedDesign = savedDesigns.find((design) => design.id === activeDesignId) ?? null;
   const connectedSystems = useMemo(
     () => {
@@ -347,6 +393,15 @@ export function MicrosystemNetwork() {
     }
 
     const bounds = networkElement.getBoundingClientRect();
+
+    if (
+      clientX < bounds.left ||
+      clientX > bounds.right ||
+      clientY < bounds.top ||
+      clientY > bounds.bottom
+    ) {
+      return null;
+    }
 
     return {
       x: clamp(((clientX - bounds.left) / bounds.width) * 100, 0, 100),
@@ -432,20 +487,91 @@ export function MicrosystemNetwork() {
   }
 
   function getCurrentSnapshot(): MeshDesignSnapshot {
+    const normalizedNodes = normalizeNodes(nodes);
+    const nodeIds = new Set(normalizedNodes.map((node) => node.id));
+
     return {
-      positions: normalizePositions(snapPositionsToCanvasGrid(positions)),
-      connectionIds: normalizeConnectionIds(connectionIds),
+      nodes: normalizedNodes,
+      positions: normalizePositions(snapPositionsToCanvasGrid(positions), normalizedNodes),
+      connectionIds: normalizeConnectionIds(connectionIds, nodeIds),
     };
   }
 
   function applyDesign(design: MeshDesign) {
-    setPositions(snapPositionsToCanvasGrid(normalizePositions(design.positions)));
-    setConnectionIds(normalizeConnectionIds(design.connectionIds));
+    const nextNodes = normalizeNodes(design.nodes);
+    const nextNodeIds = new Set(nextNodes.map((node) => node.id));
+
+    setNodes(nextNodes);
+    setPositions(snapPositionsToCanvasGrid(normalizePositions(design.positions, nextNodes)));
+    setConnectionIds(normalizeConnectionIds(design.connectionIds, nextNodeIds));
     setSelectedId(null);
     setPendingConnectionStartId(null);
     setConnectionDraft(null);
     setActiveDesignId(design.id);
     setDesignMessage(`Loaded "${design.name}".`);
+  }
+
+  function handleCreateBlankDesign() {
+    setNodes([]);
+    setPositions({});
+    setConnectionIds([]);
+    setSelectedId(null);
+    setPendingConnectionStartId(null);
+    setConnectionDraft(null);
+    setActiveDesignId(null);
+    setMode('edit');
+    setDesignMessage('New design started. Drag nodes onto the mesh, then save it.');
+  }
+
+  const createNodeId = useCallback((templateId: string) => {
+    nodeSequenceRef.current += 1;
+    return `${templateId}-${crypto.randomUUID?.() ?? nodeSequenceRef.current.toString(36)}`;
+  }, []);
+
+  const addNodeFromTemplate = useCallback((templateId: string, position: MicrosystemPosition) => {
+    const template = nodeTemplates.find((nodeTemplate) => nodeTemplate.id === templateId);
+
+    if (!template) {
+      return;
+    }
+
+    const sameTemplateCount = nodes.filter((node) => node.icon === template.icon).length;
+    const nextNode: MeshDesignNode = {
+      ...template,
+      id: createNodeId(templateId),
+      name: sameTemplateCount === 0 ? template.name : `${template.name} ${sameTemplateCount + 1}`,
+    };
+
+    setNodes((currentNodes) => [...currentNodes, nextNode]);
+    setPositions((currentPositions) => ({
+      ...currentPositions,
+      [nextNode.id]: position,
+    }));
+    setSelectedId(null);
+    setPendingConnectionStartId(null);
+    setDesignMessage(`Added ${nextNode.name}.`);
+
+    window.requestAnimationFrame(() => {
+      setPositions((currentPositions) => snapPositionsToCanvasGrid(currentPositions));
+    });
+  }, [createNodeId, nodes, snapPositionsToCanvasGrid]);
+
+  function deleteNode(id: string) {
+    const system = systems.find((item) => item.id === id);
+
+    setNodes((currentNodes) => currentNodes.filter((node) => node.id !== id));
+    setPositions((currentPositions) => {
+      const nextPositions = { ...currentPositions };
+      delete nextPositions[id];
+      return nextPositions;
+    });
+    setConnectionIds((currentConnectionIds) =>
+      currentConnectionIds.filter((connectionId) => !connectionId.split('__').includes(id)),
+    );
+    setSelectedId((currentId) => (currentId === id ? null : currentId));
+    setPendingConnectionStartId((currentId) => (currentId === id ? null : currentId));
+    setConnectionDraft((currentDraft) => (currentDraft?.fromId === id ? null : currentDraft));
+    setDesignMessage(system ? `Deleted ${system.name}.` : 'Node deleted.');
   }
 
   async function handleSaveCurrentDesign() {
@@ -668,6 +794,54 @@ export function MicrosystemNetwork() {
   }, [snapPositionsToCanvasGrid]);
 
   useEffect(() => {
+    if (!paletteDrag) {
+      return;
+    }
+
+    const currentDrag = paletteDrag;
+
+    function handlePointerMove(event: PointerEvent) {
+      if (event.pointerId !== currentDrag.pointerId) {
+        return;
+      }
+
+      setPaletteDrag((currentDrag) =>
+        currentDrag
+          ? {
+              ...currentDrag,
+              clientX: event.clientX,
+              clientY: event.clientY,
+            }
+          : null,
+      );
+    }
+
+    function handlePointerUp(event: PointerEvent) {
+      if (event.pointerId !== currentDrag.pointerId) {
+        return;
+      }
+
+      const dropPosition = getCanvasPosition(event.clientX, event.clientY);
+
+      if (dropPosition) {
+        addNodeFromTemplate(currentDrag.templateId, dropPosition);
+      }
+
+      setPaletteDrag(null);
+    }
+
+    window.addEventListener('pointermove', handlePointerMove);
+    window.addEventListener('pointerup', handlePointerUp);
+    window.addEventListener('pointercancel', handlePointerUp);
+
+    return () => {
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', handlePointerUp);
+      window.removeEventListener('pointercancel', handlePointerUp);
+    };
+  }, [addNodeFromTemplate, paletteDrag]);
+
+  useEffect(() => {
     let isMounted = true;
 
     getMeshDesigns()
@@ -723,6 +897,12 @@ export function MicrosystemNetwork() {
           <strong>{savedDesigns.length}</strong>
         </div>
 
+        {mode === 'edit' && (
+          <button type="button" className="network-new-design-button" onClick={handleCreateBlankDesign}>
+            New Design
+          </button>
+        )}
+
         <div className="network-sidebar-list">
           {isLoadingDesigns && <p className="network-sidebar-empty">Loading...</p>}
 
@@ -746,6 +926,76 @@ export function MicrosystemNetwork() {
             </button>
           ))}
         </div>
+
+        {mode === 'edit' && (
+          <>
+            <section className="network-sidebar-section" aria-label="Available nodes">
+              <div className="network-sidebar-section-header">
+                <span>Add Nodes</span>
+              </div>
+
+              <div className="network-node-palette">
+                {nodeTemplates.map((template) => (
+                  <button
+                    key={template.id}
+                    type="button"
+                    className="network-palette-item"
+                    style={{ '--node-color': template.accentColor } as CSSProperties}
+                    aria-label={`Drag ${template.name} onto the mesh`}
+                    title={`Drag ${template.name} onto the mesh`}
+                    onPointerDown={(event) => {
+                      if (event.button !== 0) {
+                        return;
+                      }
+
+                      event.preventDefault();
+                      setPaletteDrag({
+                        templateId: template.id,
+                        pointerId: event.pointerId,
+                        clientX: event.clientX,
+                        clientY: event.clientY,
+                      });
+                    }}
+                  >
+                    <span>
+                      <NodeIcon icon={template.icon} />
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </section>
+
+            <section className="network-sidebar-section" aria-label="Existing nodes">
+              <div className="network-sidebar-section-header">
+                <span>Existing Nodes</span>
+                <strong>{systems.length}</strong>
+              </div>
+
+              <div className="network-existing-nodes">
+                {systems.length === 0 && <p className="network-sidebar-empty">Drag a node onto the mesh to begin.</p>}
+
+                {systems.map((system) => (
+                  <div key={system.id} className="network-existing-node-item">
+                    <span>{system.name}</span>
+                    <button
+                      type="button"
+                      aria-label={`Delete ${system.name}`}
+                      title={`Delete ${system.name}`}
+                      onClick={() => deleteNode(system.id)}
+                    >
+                      <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M4 7h16" />
+                        <path d="M10 11v6M14 11v6" />
+                        <path d="m9 7 .8-2h4.4l.8 2" />
+                        <path d="M7 7l.8 13h8.4L17 7" />
+                      </svg>
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </section>
+          </>
+        )}
 
         {designMessage && <p className="network-sidebar-message">{designMessage}</p>}
       </aside>
@@ -832,7 +1082,7 @@ export function MicrosystemNetwork() {
             from.id === hoveredId ||
             to.id === hoveredId ||
             isConnectionHovered;
-          const connectionColor = isConnectionHovered ? '#86efac' : activeSystem.accentColor;
+          const connectionColor = isConnectionHovered ? '#86efac' : activeSystem?.accentColor ?? '#67e8f9';
           const flowColor = isActive ? connectionColor : 'rgba(125, 211, 252, 0.5)';
 
           return (
@@ -1069,6 +1319,23 @@ export function MicrosystemNetwork() {
             ))}
           </div>
         </motion.article>
+      )}
+
+      {paletteDrag && (
+        <div
+          className="network-palette-drag-preview"
+          style={{
+            left: paletteDrag.clientX,
+            top: paletteDrag.clientY,
+            '--node-color':
+              nodeTemplates.find((template) => template.id === paletteDrag.templateId)?.accentColor ?? '#67e8f9',
+          } as CSSProperties}
+          aria-hidden="true"
+        >
+          <NodeIcon
+            icon={nodeTemplates.find((template) => template.id === paletteDrag.templateId)?.icon ?? 'hub'}
+          />
+        </div>
       )}
 
         {isSaveDialogOpen && (

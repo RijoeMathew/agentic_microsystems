@@ -76,12 +76,34 @@ function validateDesignPayload(design) {
     return false;
   }
 
-  const { positions, connectionIds } = design;
+  const { nodes, positions, connectionIds } = design;
 
-  if (!positions || typeof positions !== 'object' || Array.isArray(positions) || !Array.isArray(connectionIds)) {
+  if (
+    !Array.isArray(nodes) ||
+    !positions ||
+    typeof positions !== 'object' ||
+    Array.isArray(positions) ||
+    !Array.isArray(connectionIds)
+  ) {
     return false;
   }
 
+  const validNodes = nodes.every(
+    (node) =>
+      node &&
+      typeof node === 'object' &&
+      typeof node.id === 'string' &&
+      /^[a-z0-9-]+$/i.test(node.id) &&
+      typeof node.name === 'string' &&
+      typeof node.role === 'string' &&
+      typeof node.agent === 'string' &&
+      typeof node.api === 'string' &&
+      typeof node.description === 'string' &&
+      typeof node.accentColor === 'string' &&
+      typeof node.latency === 'string' &&
+      ['hub', 'database', 'routing', 'insight', 'shield', 'signal'].includes(node.icon) &&
+      ['Active', 'Learning', 'Queued'].includes(node.status),
+  );
   const validPositions = Object.values(positions).every(
     (position) =>
       position &&
@@ -97,7 +119,7 @@ function validateDesignPayload(design) {
     (connectionId) => typeof connectionId === 'string' && /^[a-z0-9-]+__[a-z0-9-]+$/i.test(connectionId),
   );
 
-  return validPositions && validConnections;
+  return validNodes && validPositions && validConnections;
 }
 
 function json(response, statusCode, body, headers = {}) {
@@ -158,6 +180,16 @@ function buildSessionCookie(token, maxAgeSeconds) {
   return parts.join('; ');
 }
 
+function getRequestSessionToken(request) {
+  const authorizationHeader = request.headers.authorization;
+  const bearerToken =
+    typeof authorizationHeader === 'string' && authorizationHeader.startsWith('Bearer ')
+      ? authorizationHeader.slice('Bearer '.length).trim()
+      : '';
+
+  return bearerToken || parseCookies(request)[sessionCookieName] || null;
+}
+
 function hashSessionToken(token) {
   return createHash('sha256').update(token).digest('hex');
 }
@@ -192,7 +224,7 @@ async function createSession(userId) {
 
 async function getSessionUser(request) {
   await ensureDatabase();
-  const token = parseCookies(request)[sessionCookieName];
+  const token = getRequestSessionToken(request);
 
   if (!token) {
     return null;
@@ -238,7 +270,7 @@ const server = createServer(async (request, response) => {
   if (request.method === 'OPTIONS') {
     response.writeHead(204, {
       ...responseCorsHeaders,
-      'Access-Control-Allow-Headers': 'Content-Type',
+      'Access-Control-Allow-Headers': 'Content-Type, Authorization',
       'Access-Control-Allow-Methods': 'GET,POST,PUT,OPTIONS',
     });
     response.end();
@@ -279,7 +311,7 @@ const server = createServer(async (request, response) => {
       json(
         response,
         201,
-        { email: normalizedEmail },
+        { email: normalizedEmail, sessionToken: token },
         {
           ...responseCorsHeaders,
           'Set-Cookie': buildSessionCookie(token, sessionDurationMs / 1000),
@@ -304,7 +336,7 @@ const server = createServer(async (request, response) => {
       json(
         response,
         200,
-        { email: normalizedEmail },
+        { email: normalizedEmail, sessionToken: token },
         {
           ...responseCorsHeaders,
           'Set-Cookie': buildSessionCookie(token, sessionDurationMs / 1000),
@@ -327,7 +359,7 @@ const server = createServer(async (request, response) => {
 
     if (request.method === 'POST' && request.url === '/api/auth/logout') {
       await ensureDatabase();
-      const token = parseCookies(request)[sessionCookieName];
+      const token = getRequestSessionToken(request);
 
       if (token) {
         await sessions.deleteOne({ tokenHash: hashSessionToken(token) });
@@ -359,6 +391,7 @@ const server = createServer(async (request, response) => {
           {
             projection: {
               name: 1,
+              nodes: 1,
               positions: 1,
               connectionIds: 1,
               createdAt: 1,
@@ -376,6 +409,7 @@ const server = createServer(async (request, response) => {
           designs: designs.map((design) => ({
             id: design._id.toString(),
             name: design.name,
+            nodes: design.nodes,
             positions: design.positions,
             connectionIds: design.connectionIds,
             createdAt: design.createdAt,
@@ -395,14 +429,14 @@ const server = createServer(async (request, response) => {
         return;
       }
 
-      const { name = '', positions, connectionIds } = await readJsonBody(request);
+      const { name = '', nodes, positions, connectionIds } = await readJsonBody(request);
 
       if (!validateDesignName(name)) {
         json(response, 400, { error: 'Use a design name between 1 and 80 characters.' }, responseCorsHeaders);
         return;
       }
 
-      if (!validateDesignPayload({ positions, connectionIds })) {
+      if (!validateDesignPayload({ nodes, positions, connectionIds })) {
         json(response, 400, { error: 'Design data is invalid.' }, responseCorsHeaders);
         return;
       }
@@ -413,6 +447,7 @@ const server = createServer(async (request, response) => {
         userId: user._id,
         name: normalizedName,
         normalizedName: normalizedName.toLowerCase(),
+        nodes,
         positions,
         connectionIds,
         createdAt: now,
@@ -426,6 +461,7 @@ const server = createServer(async (request, response) => {
           design: {
             id: insertResult.insertedId.toString(),
             name: normalizedName,
+            nodes,
             positions,
             connectionIds,
             createdAt: now,
@@ -447,9 +483,9 @@ const server = createServer(async (request, response) => {
         return;
       }
 
-      const { positions, connectionIds } = await readJsonBody(request);
+      const { nodes, positions, connectionIds } = await readJsonBody(request);
 
-      if (!validateDesignPayload({ positions, connectionIds })) {
+      if (!validateDesignPayload({ nodes, positions, connectionIds })) {
         json(response, 400, { error: 'Design data is invalid.' }, responseCorsHeaders);
         return;
       }
@@ -459,6 +495,7 @@ const server = createServer(async (request, response) => {
         { _id: new ObjectId(designMatch[1]), userId: user._id },
         {
           $set: {
+            nodes,
             positions,
             connectionIds,
             updatedAt,
@@ -468,6 +505,7 @@ const server = createServer(async (request, response) => {
           returnDocument: 'after',
           projection: {
             name: 1,
+            nodes: 1,
             positions: 1,
             connectionIds: 1,
             createdAt: 1,
@@ -488,6 +526,7 @@ const server = createServer(async (request, response) => {
           design: {
             id: updateResult._id.toString(),
             name: updateResult.name,
+            nodes: updateResult.nodes,
             positions: updateResult.positions,
             connectionIds: updateResult.connectionIds,
             createdAt: updateResult.createdAt,

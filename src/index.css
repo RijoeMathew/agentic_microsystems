@@ -196,6 +196,147 @@ a {
   min-height: 0;
 }
 
+.network-new-design-button {
+  min-height: 2.4rem;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid rgba(103, 232, 249, 0.28);
+  border-radius: 8px;
+  color: #061016;
+  background: #67e8f9;
+  font-size: 0.78rem;
+  font-weight: 850;
+  cursor: pointer;
+}
+
+.network-sidebar-section {
+  display: grid;
+  gap: 0.65rem;
+  padding-top: 0.9rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.network-sidebar-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  color: #dbeafe;
+  font-size: 0.74rem;
+  font-weight: 850;
+}
+
+.network-sidebar-section-header strong {
+  color: #9fb0c7;
+  font-size: 0.72rem;
+}
+
+.network-node-palette {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+
+.network-palette-item {
+  --node-color: #38bdf8;
+  display: grid;
+  place-items: center;
+  min-height: 3rem;
+  padding: 0;
+  border: 1px solid color-mix(in srgb, var(--node-color) 48%, rgba(255, 255, 255, 0.1));
+  border-radius: 8px;
+  color: #f8fbff;
+  background: color-mix(in srgb, var(--node-color) 12%, rgba(255, 255, 255, 0.035));
+  cursor: grab;
+  touch-action: none;
+}
+
+.network-palette-item:hover {
+  background: color-mix(in srgb, var(--node-color) 20%, rgba(255, 255, 255, 0.05));
+}
+
+.network-palette-item span {
+  display: grid;
+  place-items: center;
+  width: 1.8rem;
+  height: 1.8rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--node-color) 28%, rgba(255, 255, 255, 0.06));
+}
+
+.network-palette-item svg,
+.network-palette-drag-preview svg {
+  width: 1.1rem;
+  height: 1.1rem;
+  overflow: visible;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.9;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.network-palette-item circle,
+.network-palette-item ellipse,
+.network-palette-drag-preview circle,
+.network-palette-drag-preview ellipse {
+  fill: color-mix(in srgb, var(--node-color) 28%, transparent);
+  stroke: currentColor;
+}
+
+.network-existing-nodes {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.network-existing-node-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.55rem;
+  min-width: 0;
+  padding: 0.42rem 0.48rem 0.42rem 0.62rem;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.network-existing-node-item span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: #dbeafe;
+  font-size: 0.76rem;
+  font-weight: 750;
+}
+
+.network-existing-node-item button {
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: 1.9rem;
+  height: 1.9rem;
+  padding: 0;
+  border: 1px solid rgba(253, 164, 175, 0.22);
+  border-radius: 8px;
+  color: #fecdd3;
+  background: rgba(127, 29, 29, 0.26);
+  cursor: pointer;
+}
+
+.network-existing-node-item button:hover {
+  border-color: rgba(253, 164, 175, 0.42);
+  background: rgba(127, 29, 29, 0.42);
+}
+
+.network-existing-node-item svg {
+  width: 1rem;
+  height: 1rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+}
+
 .network-sidebar-empty,
 .network-sidebar-message {
   margin: 0;
@@ -797,6 +938,22 @@ a {
   gap: 0.55rem;
 }
 
+.network-palette-drag-preview {
+  position: fixed;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  width: 2.75rem;
+  height: 2.75rem;
+  translate: -50% -50%;
+  border: 1px solid color-mix(in srgb, var(--node-color) 68%, rgba(255, 255, 255, 0.2));
+  border-radius: 999px;
+  color: #f8fbff;
+  background: color-mix(in srgb, var(--node-color) 24%, rgba(3, 7, 18, 0.9));
+  box-shadow: 0 0 24px color-mix(in srgb, var(--node-color) 42%, transparent);
+  pointer-events: none;
+}
+
 .network-save-button {
   min-height: 2rem;
   padding: 0.42rem 0.7rem;
@@ -1359,6 +1516,8 @@ a {
   .app-container {
     padding: 1rem 1rem 1.25rem;
     align-items: flex-start;
+    justify-content: flex-start;
+    overflow: visible;
   }
 
   .glass-container,
@@ -1429,6 +1588,14 @@ a {
     min-height: auto;
   }
 
+  .network-sidebar-list {
+    grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+  }
+
+  .network-node-palette {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+  }
+
   .signout-button {
     flex: 0 0 auto;
   }
@@ -1439,6 +1606,13 @@ a {
 
   .microsystem-network {
     min-height: 580px;
+  }
+
+  .network-toolbar {
+    top: 0.75rem;
+    left: 0.75rem;
+    right: 0.75rem;
+    justify-content: space-between;
   }
 
   .node-label {
@@ -1461,6 +1635,15 @@ a {
 
   .microsystem-network {
     min-height: 560px;
+  }
+
+  .workspace-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .network-node-palette {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
   .network-node {

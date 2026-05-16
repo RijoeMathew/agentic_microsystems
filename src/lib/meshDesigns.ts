@@ -1,4 +1,20 @@
+import { getAuthenticatedHeaders } from './auth';
+
+export type MeshDesignNode = {
+  id: string;
+  name: string;
+  icon: 'hub' | 'database' | 'routing' | 'insight' | 'shield' | 'signal';
+  role: string;
+  agent: string;
+  api: string;
+  status: 'Active' | 'Learning' | 'Queued';
+  latency: string;
+  accentColor: string;
+  description: string;
+};
+
 export type MeshDesignSnapshot = {
+  nodes: MeshDesignNode[];
   positions: Record<string, { x: number; y: number }>;
   connectionIds: string[];
 };
@@ -16,10 +32,7 @@ async function request<T>(path: string, init?: RequestInit) {
   const response = await fetch(`${apiBaseUrl}${path}`, {
     ...init,
     credentials: 'include',
-    headers: {
-      'Content-Type': 'application/json',
-      ...init?.headers,
-    },
+    headers: getAuthenticatedHeaders(init?.headers),
   });
   const payload = (await response.json().catch(() => null)) as ({ error?: string } & T) | null;
 

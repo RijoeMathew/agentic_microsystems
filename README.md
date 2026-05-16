@@ -9,7 +9,7 @@ The API in `server/index.mjs` provides:
 - Email/password registration and sign-in
 - MongoDB-backed users and sessions collections
 - Server-side password hashing with `scrypt`
-- HttpOnly session cookies
+- HttpOnly session cookies plus a bearer-token fallback for browsers that block cross-site cookies
 - CORS configured for a single frontend origin
 
 For this demo repo, the Atlas SRV connection string is hardcoded in `server/index.mjs`. Local development can override it with `MONGODB_URI` when needed.
@@ -27,7 +27,7 @@ For this demo repo, the Atlas SRV connection string is hardcoded in `server/inde
 - Deploy `server/index.mjs` to a separate Node host.
 - Production builds use `.env.production`, which currently points `VITE_API_BASE_URL` at `https://agentic-microsystems-api.onrender.com`.
 - Set `CLIENT_ORIGINS` on the API host to your GitHub Pages/site origin.
-- The Render subdomain works with production cookies configured as `SameSite=None; Secure`.
+- The Render subdomain uses production cookies configured as `SameSite=None; Secure`, and the frontend also stores the returned session token as a fallback for mobile browsers that block third-party cookies.
 - A same-site API hostname such as `api.agenticmicrosystems.com` is still the better long-term setup when the site is hosted at `agenticmicrosystems.com`.
 
 GitHub Pages publishes static files only, so it cannot open a MongoDB driver connection by itself. A frontend-only direct MongoDB connection is not a deployable GitHub Pages architecture; the API must run somewhere that can execute server-side code.
