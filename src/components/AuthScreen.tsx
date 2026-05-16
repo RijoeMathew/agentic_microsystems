@@ -2,14 +2,16 @@ import { useState, type FormEvent } from 'react';
 import { motion } from 'framer-motion';
 import { authenticateUser, registerUser, validateEmail, validatePassword } from '../lib/auth';
 
-type AuthMode = 'login' | 'register';
+export type AuthMode = 'login' | 'register';
 
 type AuthScreenProps = {
+  initialMode: AuthMode;
+  onClose: () => void;
   onAuthenticated: (email: string) => void;
 };
 
-export function AuthScreen({ onAuthenticated }: AuthScreenProps) {
-  const [mode, setMode] = useState<AuthMode>('login');
+export function AuthScreen({ initialMode, onClose, onAuthenticated }: AuthScreenProps) {
+  const [mode, setMode] = useState<AuthMode>(initialMode);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isPasswordVisible, setIsPasswordVisible] = useState(false);
@@ -63,6 +65,12 @@ export function AuthScreen({ onAuthenticated }: AuthScreenProps) {
       </section>
 
       <section className="auth-panel" aria-label="Authentication">
+        <button type="button" className="auth-close" aria-label="Close authentication" onClick={onClose}>
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M18 6 6 18M6 6l12 12" />
+          </svg>
+        </button>
+
         <div className="auth-tabs" role="tablist" aria-label="Authentication mode">
           <button
             type="button"
