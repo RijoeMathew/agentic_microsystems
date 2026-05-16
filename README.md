@@ -12,7 +12,7 @@ The API in `server/index.mjs` provides:
 - HttpOnly session cookies
 - CORS configured for a single frontend origin
 
-For this demo repo, the MongoDB connection string is hardcoded in `server/index.mjs`.
+For this demo repo, the Atlas SRV connection string is hardcoded in `server/index.mjs`. Local development can override it with `MONGODB_URI` when needed.
 
 ### Local setup
 
@@ -41,6 +41,8 @@ This repo includes `render.yaml` for a Render Blueprint:
 4. Push to `main` again or rerun the Pages workflow so the frontend is rebuilt against the live API URL.
 
 Render Blueprints are defined by `render.yaml`, and Render deploys services from linked Git branches. Render automatically provides a public service URL for web services.
+
+The Render Blueprint pins Node to `20.19.0` and uses the Atlas SRV connection string in production.
 
 This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
 

@@ -6,7 +6,8 @@ import { MongoClient } from 'mongodb';
 const scrypt = promisify(scryptCallback);
 const port = Number(process.env.PORT ?? 8787);
 const mongoUri =
-  'mongodb://agent_db_user:XWNGJ4JDnJMwIg1E@ac-jqqzcns-shard-00-00.eu7pmtb.mongodb.net:27017,ac-jqqzcns-shard-00-01.eu7pmtb.mongodb.net:27017,ac-jqqzcns-shard-00-02.eu7pmtb.mongodb.net:27017/?tls=true&replicaSet=atlas-fw4r9u-shard-0&authSource=admin&retryWrites=true&w=majority&appName=AgenticMicrosystemsDB';
+  process.env.MONGODB_URI ??
+  'mongodb+srv://agent_db_user:XWNGJ4JDnJMwIg1E@agenticmicrosystemsdb.eu7pmtb.mongodb.net/?appName=AgenticMicrosystemsDB';
 const databaseName = 'agentic_microsystems';
 const allowedOrigins = new Set(
   (process.env.CLIENT_ORIGINS ?? process.env.CLIENT_ORIGIN ?? 'http://127.0.0.1:5173,http://127.0.0.1:4173')
@@ -27,15 +28,25 @@ const passwordOptions = {
 };
 
 const mongoClient = new MongoClient(mongoUri);
-await mongoClient.connect();
+let users;
+let sessions;
+let databaseReadyPromise;
 
-const database = mongoClient.db(databaseName);
-const users = database.collection('users');
-const sessions = database.collection('sessions');
+function ensureDatabase() {
+  if (!databaseReadyPromise) {
+    databaseReadyPromise = mongoClient.connect().then(async () => {
+      const database = mongoClient.db(databaseName);
+      users = database.collection('users');
+      sessions = database.collection('sessions');
 
-await users.createIndex({ email: 1 }, { unique: true });
-await sessions.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 });
-await sessions.createIndex({ tokenHash: 1 }, { unique: true });
+      await users.createIndex({ email: 1 }, { unique: true });
+      await sessions.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 });
+      await sessions.createIndex({ tokenHash: 1 }, { unique: true });
+    });
+  }
+
+  return databaseReadyPromise;
+}
 
 function normalizeEmail(email) {
   return email.trim().toLowerCase();
@@ -125,6 +136,7 @@ async function passwordMatches(password, user) {
 }
 
 async function createSession(userId) {
+  await ensureDatabase();
   const token = randomBytes(32).toString('base64url');
   const expiresAt = new Date(Date.now() + sessionDurationMs);
 
@@ -139,6 +151,7 @@ async function createSession(userId) {
 }
 
 async function getSessionUser(request) {
+  await ensureDatabase();
   const token = parseCookies(request)[sessionCookieName];
 
   if (!token) {
@@ -199,6 +212,7 @@ const server = createServer(async (request, response) => {
     }
 
     if (request.method === 'POST' && request.url === '/api/auth/register') {
+      await ensureDatabase();
       const { email = '', password = '' } = await readJsonBody(request);
       const normalizedEmail = normalizeEmail(email);
 
@@ -235,6 +249,7 @@ const server = createServer(async (request, response) => {
     }
 
     if (request.method === 'POST' && request.url === '/api/auth/login') {
+      await ensureDatabase();
       const { email = '', password = '' } = await readJsonBody(request);
       const normalizedEmail = normalizeEmail(email);
       const user = await users.findOne({ email: normalizedEmail });
@@ -271,6 +286,7 @@ const server = createServer(async (request, response) => {
     }
 
     if (request.method === 'POST' && request.url === '/api/auth/logout') {
+      await ensureDatabase();
       const token = parseCookies(request)[sessionCookieName];
 
       if (token) {
