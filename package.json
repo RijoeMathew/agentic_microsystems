@@ -5,6 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "api:dev": "node --env-file=.env.local server/index.mjs",
+    "api:start": "node server/index.mjs",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview"
@@ -13,6 +15,7 @@
     "@tailwindcss/postcss": "^4.2.2",
     "clsx": "^2.1.1",
     "framer-motion": "^12.38.0",
+    "mongodb": "^6.20.0",
     "react": "^19.2.4",
     "react-dom": "^19.2.4"
   },

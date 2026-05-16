@@ -1,5 +1,47 @@
 # React + TypeScript + Vite
 
+## Authentication
+
+The frontend is still compatible with GitHub Pages, and authentication uses MongoDB through the API in `server/index.mjs`.
+
+The API in `server/index.mjs` provides:
+
+- Email/password registration and sign-in
+- MongoDB-backed users and sessions collections
+- Server-side password hashing with `scrypt`
+- HttpOnly session cookies
+- CORS configured for a single frontend origin
+
+For this demo repo, the MongoDB connection string is hardcoded in `server/index.mjs`.
+
+### Local setup
+
+1. Copy `.env.example` to `.env.local`.
+2. Set `CLIENT_ORIGINS` if you use different local frontend URLs.
+3. Run the API with `npm run api:dev`.
+4. Run the frontend with `npm run dev`.
+
+### Deployment shape
+
+- Deploy the React build to GitHub Pages.
+- Deploy `server/index.mjs` to a separate Node host.
+- Set the GitHub Actions repository variable `VITE_API_BASE_URL` to the public API URL before the Pages build runs.
+- Set `CLIENT_ORIGINS` on the API host to your GitHub Pages/site origin.
+- Use a same-site API hostname such as `api.agenticmicrosystems.com` for cookie-based auth when the site is hosted at `agenticmicrosystems.com`.
+
+GitHub Pages publishes static files only, so it cannot open a MongoDB driver connection by itself. A frontend-only direct MongoDB connection is not a deployable GitHub Pages architecture; the API must run somewhere that can execute server-side code.
+
+### Render deployment
+
+This repo includes `render.yaml` for a Render Blueprint:
+
+1. In Render, create a new Blueprint from this GitHub repository.
+2. Render will create the `agentic-microsystems-api` web service from `render.yaml`.
+3. After Render assigns the API URL, copy it into the GitHub Actions repository variable `VITE_API_BASE_URL`.
+4. Push to `main` again or rerun the Pages workflow so the frontend is rebuilt against the live API URL.
+
+Render Blueprints are defined by `render.yaml`, and Render deploys services from linked Git branches. Render automatically provides a public service URL for web services.
+
 This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
 
 Currently, two official plugins are available:
