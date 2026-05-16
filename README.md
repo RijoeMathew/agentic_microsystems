@@ -27,7 +27,8 @@ For this demo repo, the Atlas SRV connection string is hardcoded in `server/inde
 - Deploy `server/index.mjs` to a separate Node host.
 - Production builds use `.env.production`, which currently points `VITE_API_BASE_URL` at `https://agentic-microsystems-api.onrender.com`.
 - Set `CLIENT_ORIGINS` on the API host to your GitHub Pages/site origin.
-- Use a same-site API hostname such as `api.agenticmicrosystems.com` for cookie-based auth when the site is hosted at `agenticmicrosystems.com`.
+- The Render subdomain works with production cookies configured as `SameSite=None; Secure`.
+- A same-site API hostname such as `api.agenticmicrosystems.com` is still the better long-term setup when the site is hosted at `agenticmicrosystems.com`.
 
 GitHub Pages publishes static files only, so it cannot open a MongoDB driver connection by itself. A frontend-only direct MongoDB connection is not a deployable GitHub Pages architecture; the API must run somewhere that can execute server-side code.
 

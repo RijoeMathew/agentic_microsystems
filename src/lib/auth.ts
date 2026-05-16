@@ -2,7 +2,7 @@ type AuthenticatedUser = {
   email: string;
 };
 
-const apiBaseUrl = (import.meta.env.VITE_API_BASE_URL ?? 'http://127.0.0.1:8787').replace(/\/$/, '');
+const apiBaseUrl = (import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8787').replace(/\/$/, '');
 
 function normalizeEmail(email: string) {
   return email.trim().toLowerCase();

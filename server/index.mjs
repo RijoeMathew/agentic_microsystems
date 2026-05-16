@@ -103,7 +103,7 @@ function buildSessionCookie(token, maxAgeSeconds) {
     `${sessionCookieName}=${encodeURIComponent(token)}`,
     'Path=/',
     'HttpOnly',
-    'SameSite=Lax',
+    secureCookies ? 'SameSite=None' : 'SameSite=Lax',
     `Max-Age=${maxAgeSeconds}`,
   ];
 
