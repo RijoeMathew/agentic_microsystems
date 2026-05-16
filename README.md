@@ -25,7 +25,7 @@ For this demo repo, the Atlas SRV connection string is hardcoded in `server/inde
 
 - Deploy the React build to GitHub Pages.
 - Deploy `server/index.mjs` to a separate Node host.
-- Set the GitHub Actions repository variable `VITE_API_BASE_URL` to the public API URL before the Pages build runs.
+- Production builds use `.env.production`, which currently points `VITE_API_BASE_URL` at `https://agentic-microsystems-api.onrender.com`.
 - Set `CLIENT_ORIGINS` on the API host to your GitHub Pages/site origin.
 - Use a same-site API hostname such as `api.agenticmicrosystems.com` for cookie-based auth when the site is hosted at `agenticmicrosystems.com`.
 
@@ -37,8 +37,8 @@ This repo includes `render.yaml` for a Render Blueprint:
 
 1. In Render, create a new Blueprint from this GitHub repository.
 2. Render will create the `agentic-microsystems-api` web service from `render.yaml`.
-3. After Render assigns the API URL, copy it into the GitHub Actions repository variable `VITE_API_BASE_URL`.
-4. Push to `main` again or rerun the Pages workflow so the frontend is rebuilt against the live API URL.
+3. The current production frontend is already configured to use `https://agentic-microsystems-api.onrender.com`.
+4. Push to `main` or rerun the Pages workflow so the frontend is rebuilt against the live API URL.
 
 Render Blueprints are defined by `render.yaml`, and Render deploys services from linked Git branches. Render automatically provides a public service URL for web services.
 
