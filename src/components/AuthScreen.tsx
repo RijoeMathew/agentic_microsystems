@@ -59,6 +59,14 @@ export function AuthScreen({ initialMode, onClose, onAuthenticated }: AuthScreen
       className="auth-shell"
     >
       <section className="auth-brand" aria-label="Agentic Microsystems">
+        <div className="auth-graphic" aria-hidden="true">
+          <span className="auth-orbit auth-orbit-one"></span>
+          <span className="auth-orbit auth-orbit-two"></span>
+          <span className="auth-core"></span>
+          <span className="auth-satellite auth-satellite-one"></span>
+          <span className="auth-satellite auth-satellite-two"></span>
+          <span className="auth-satellite auth-satellite-three"></span>
+        </div>
         <p className="auth-kicker">Agentic Microsystems</p>
         <h1>Secure access</h1>
         <p>Sign in to continue to the microsystem workspace.</p>
